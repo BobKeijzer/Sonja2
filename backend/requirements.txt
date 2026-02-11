@@ -1,0 +1,16 @@
+# FastAPI
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# CrewAI & tools (rag extra for RagTool + Voyage embedder, anthropic for Anthropic LLM)
+crewai[anthropic]>=0.80.0
+crewai-tools[rag]>=0.17.0
+
+# Env
+python-dotenv>=1.0.0
+
+# CORS
+python-multipart>=0.0.9
+
+# Agenda recurring (cron)
+croniter>=2.0.0
