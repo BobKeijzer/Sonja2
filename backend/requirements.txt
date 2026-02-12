@@ -2,9 +2,11 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 
-# CrewAI & tools (rag extra for RagTool + Voyage embedder, anthropic for Anthropic LLM)
+# CrewAI & tools (RAG: Chroma lokaal + Voyage)
 crewai[anthropic]>=0.80.0
 crewai-tools[rag]>=0.17.0
+chromadb>=0.4.0
+voyageai>=0.2.0
 
 # Env
 python-dotenv>=1.0.0

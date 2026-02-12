@@ -48,12 +48,16 @@ export async function sendChatMessage(
 // ─── Meetings ────────────────────────────────────────────────────────────────
 
 export async function extractMeeting(
-  transcript: string
+  transcript: string,
+  customPrompt?: string
 ): Promise<{ response: string; steps: ThinkingStep[] }> {
   const res = await fetch(`${API_BASE}/meetings/extract`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ transcript }),
+    body: JSON.stringify({
+      transcript,
+      ...(customPrompt?.trim() ? { custom_prompt: customPrompt.trim() } : {}),
+    }),
   })
   if (!res.ok) throw new Error("Meeting extraction failed")
   const data = await res.json()
@@ -63,12 +67,16 @@ export async function extractMeeting(
 // ─── Website Analysis ────────────────────────────────────────────────────────
 
 export async function analyzeWebsite(
-  url: string
+  url: string,
+  customPrompt?: string
 ): Promise<{ response: string; steps: ThinkingStep[] }> {
   const res = await fetch(`${API_BASE}/analyze/website`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({
+      url,
+      ...(customPrompt?.trim() ? { custom_prompt: customPrompt.trim() } : {}),
+    }),
   })
   if (!res.ok) throw new Error("Website analysis failed")
   const data = await res.json()
@@ -195,6 +203,33 @@ export async function uploadKnowledgeFile(file: File): Promise<void> {
     body: formData,
   })
   if (!res.ok) throw new Error("Failed to upload file")
+}
+
+export async function createKnowledgeFile(
+  filename: string,
+  content: string
+): Promise<void> {
+  const name = filename.trim().endsWith(".md") || filename.trim().endsWith(".txt")
+    ? filename.trim()
+    : `${filename.trim()}.md`
+  const res = await fetch(`${API_BASE}/knowledge/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: name, content }),
+  })
+  if (!res.ok) throw new Error("Failed to create document")
+}
+
+export async function updateKnowledgeFile(
+  filename: string,
+  content: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/knowledge/${encodeURIComponent(filename)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  })
+  if (!res.ok) throw new Error("Failed to update file")
 }
 
 export async function deleteKnowledgeFile(filename: string): Promise<void> {

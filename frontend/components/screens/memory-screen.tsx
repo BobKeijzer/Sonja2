@@ -8,9 +8,12 @@ import {
   FileText,
   Trash2,
   Upload,
+  Plus,
+  Pencil,
   ChevronDown,
   ChevronRight,
   Loader2,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -18,6 +21,8 @@ import {
   getKnowledgeFiles,
   getKnowledgeContent,
   uploadKnowledgeFile,
+  createKnowledgeFile,
+  updateKnowledgeFile,
   deleteKnowledgeFile,
 } from "@/lib/api"
 
@@ -31,6 +36,12 @@ export function MemoryScreen() {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [expandedName, setExpandedName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showNewDoc, setShowNewDoc] = useState(false)
+  const [newDocName, setNewDocName] = useState("")
+  const [newDocContent, setNewDocContent] = useState("")
+  const [editingName, setEditingName] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState("")
+  const [savingEdit, setSavingEdit] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load file list from backend
@@ -85,11 +96,77 @@ export function MemoryScreen() {
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
+  const handleCreateDoc = async () => {
+    if (!newDocName.trim() || !newDocContent.trim()) return
+    try {
+      await createKnowledgeFile(newDocName.trim(), newDocContent.trim())
+      const names = await getKnowledgeFiles()
+      setFiles(names.map((n) => ({ name: n })))
+      setNewDocName("")
+      setNewDocContent("")
+      setShowNewDoc(false)
+    } catch { /* ignore */ }
+  }
+
+  const startEdit = (name: string) => {
+    setExpandedName(name)
+    const file = files.find((f) => f.name === name)
+    if (file?.content !== undefined) {
+      setEditingName(name)
+      setEditingContent(file.content)
+    } else {
+      setFiles((prev) =>
+        prev.map((f) => (f.name === name ? { ...f, loadingContent: true } : f))
+      )
+      getKnowledgeContent(name)
+        .then((content) => {
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.name === name ? { ...f, content, loadingContent: false } : f
+            )
+          )
+          setEditingName(name)
+          setEditingContent(content)
+        })
+        .catch(() => {
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.name === name ? { ...f, loadingContent: false } : f
+            )
+          )
+          setEditingName(name)
+          setEditingContent("")
+        })
+    }
+  }
+
+  const cancelEdit = () => {
+    setEditingName(null)
+    setEditingContent("")
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingName) return
+    setSavingEdit(true)
+    try {
+      await updateKnowledgeFile(editingName, editingContent)
+      setFiles((prev) =>
+        prev.map((f) => (f.name === editingName ? { ...f, content: editingContent } : f))
+      )
+      setEditingName(null)
+      setEditingContent("")
+    } catch { /* ignore */ }
+    finally {
+      setSavingEdit(false)
+    }
+  }
+
   const handleDelete = async (name: string) => {
     try {
       await deleteKnowledgeFile(name)
       setFiles((prev) => prev.filter((f) => f.name !== name))
       if (expandedName === name) setExpandedName(null)
+      if (editingName === name) cancelEdit()
     } catch { /* ignore */ }
   }
 
@@ -128,8 +205,62 @@ export function MemoryScreen() {
               <Upload className="h-4 w-4" />
               Upload bestand
             </Button>
+            <Button
+              size="sm"
+              className="gap-2"
+              onClick={() => setShowNewDoc(!showNewDoc)}
+            >
+              <Plus className="h-4 w-4" />
+              Nieuw document
+            </Button>
           </div>
         </div>
+
+        {/* New document form */}
+        {showNewDoc && (
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-card-foreground">
+                  Nieuw document
+                </h3>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setShowNewDoc(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="flex flex-col gap-3">
+                <input
+                  type="text"
+                  value={newDocName}
+                  onChange={(e) => setNewDocName(e.target.value)}
+                  placeholder="Bestandsnaam (bijv. notities.md)"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <textarea
+                  value={newDocContent}
+                  onChange={(e) => setNewDocContent(e.target.value)}
+                  placeholder="Inhoud van het document..."
+                  rows={5}
+                  className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={handleCreateDoc}
+                    disabled={!newDocName.trim() || !newDocContent.trim()}
+                  >
+                    Opslaan
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Files list */}
         {files.length === 0 ? (
@@ -140,8 +271,8 @@ export function MemoryScreen() {
                 Nog geen bestanden in het geheugen
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Upload bestanden (.md of .txt) die Sonja als context kan
-                gebruiken.
+                Upload bestanden of maak documenten aan die Sonja als context
+                kan gebruiken.
               </p>
             </CardContent>
           </Card>
@@ -178,6 +309,19 @@ export function MemoryScreen() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            startEdit(file.name)
+                          }}
+                          title="Bewerken"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span className="sr-only">Bewerk {file.name}</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           className="h-8 w-8 text-destructive hover:text-destructive"
                           onClick={(e) => {
                             e.stopPropagation()
@@ -196,7 +340,38 @@ export function MemoryScreen() {
                     </div>
                     {isExpanded && (
                       <div className="border-t border-border px-4 py-3">
-                        {file.loadingContent ? (
+                        {editingName === file.name ? (
+                          <div className="flex flex-col gap-3">
+                            <textarea
+                              value={editingContent}
+                              onChange={(e) => setEditingContent(e.target.value)}
+                              rows={12}
+                              className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                              placeholder="Inhoud van het bestand..."
+                            />
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={cancelEdit}
+                                disabled={savingEdit}
+                              >
+                                Annuleren
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={handleSaveEdit}
+                                disabled={savingEdit}
+                              >
+                                {savingEdit ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  "Opslaan"
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : file.loadingContent ? (
                           <div className="flex items-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             <span className="text-xs text-muted-foreground">

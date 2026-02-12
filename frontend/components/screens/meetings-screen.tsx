@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
   Search,
   Upload,
@@ -10,12 +10,28 @@ import {
   Loader2,
   CheckCircle2,
   X,
+  Settings,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ThinkingSteps } from "@/components/thinking-steps"
+import { MarkdownContent } from "@/components/markdown-content"
 import type { ThinkingStep } from "@/lib/types"
 import { extractMeeting } from "@/lib/api"
+
+const STORAGE_KEY = "sonja-meetings-prompt"
+
+const DEFAULT_PROMPT = `Uit onderstaand vergadertranscript: haal actiepunten, to-do's en leerpunten/kennis. Sla de leerpunten en relevante kennis op met write_to_memory. Geef daarna een kort overzicht van wat je hebt opgeslagen en de actiepunten.`
+
+function getStoredPrompt(): string {
+  if (typeof window === "undefined") return DEFAULT_PROMPT
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    return saved ?? DEFAULT_PROMPT
+  } catch {
+    return DEFAULT_PROMPT
+  }
+}
 
 export function MeetingsScreen() {
   const [transcript, setTranscript] = useState("")
@@ -23,7 +39,27 @@ export function MeetingsScreen() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [steps, setSteps] = useState<ThinkingStep[]>([])
+  const [showPromptEdit, setShowPromptEdit] = useState(false)
+  const [prompt, setPrompt] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setPrompt(getStoredPrompt())
+  }, [])
+
+  const handlePromptChange = (value: string) => {
+    setPrompt(value)
+    try {
+      localStorage.setItem(STORAGE_KEY, value)
+    } catch { /* ignore */ }
+  }
+
+  const resetPromptToDefault = () => {
+    setPrompt(DEFAULT_PROMPT)
+    try {
+      localStorage.setItem(STORAGE_KEY, DEFAULT_PROMPT)
+    } catch { /* ignore */ }
+  }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -43,7 +79,7 @@ export function MeetingsScreen() {
     setSteps([])
 
     try {
-      const data = await extractMeeting(transcript)
+      const data = await extractMeeting(transcript, prompt.trim() || undefined)
       setSteps(data.steps)
       setResult(data.response)
     } catch {
@@ -73,9 +109,51 @@ export function MeetingsScreen() {
           </p>
         </div>
 
+        {/* Prompt editor: bewerkbaar, opgeslagen in localStorage; reset herstelt originele standaard */}
+        {showPromptEdit && (
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-xs font-semibold text-card-foreground">
+                  Extractie prompt (bewerkbaar, wordt opgeslagen)
+                </label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={resetPromptToDefault}
+                >
+                  Reset naar standaard
+                </Button>
+              </div>
+              <textarea
+                value={prompt}
+                onChange={(e) => handlePromptChange(e.target.value)}
+                rows={6}
+                className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                Het transcript wordt automatisch onder de prompt geplakt. Reset herstelt de originele standaardprompt.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Input area */}
         <Card className="mb-6">
           <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2 pb-2">
+              <span className="text-sm text-muted-foreground">Transcript</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => setShowPromptEdit((b) => !b)}
+              >
+                <Settings className="h-3.5 w-3.5" />
+                {showPromptEdit ? "Verberg prompt" : "Prompt"}
+              </Button>
+            </div>
             <div className="relative">
               <textarea
                 value={transcript}
@@ -160,26 +238,8 @@ export function MeetingsScreen() {
             </CardHeader>
             <CardContent className="pt-2">
               <ThinkingSteps steps={steps} defaultOpen />
-              <div className="mt-3 rounded-lg bg-muted/50 p-4 text-sm leading-relaxed text-card-foreground">
-                {result.split("\n").map((line, i) => (
-                  <span key={i}>
-                    {line.startsWith("**") && line.endsWith("**") ? (
-                      <strong className="text-foreground">
-                        {line.slice(2, -2)}
-                      </strong>
-                    ) : line.startsWith("- ") ? (
-                      <span className="ml-4 block text-muted-foreground">
-                        {"  • "}
-                        {line.slice(2)}
-                      </span>
-                    ) : line.match(/^\d+\./) ? (
-                      <span className="ml-2 block">{line}</span>
-                    ) : (
-                      line
-                    )}
-                    {i < result.split("\n").length - 1 && <br />}
-                  </span>
-                ))}
+              <div className="mt-3 rounded-lg bg-muted/50 p-4">
+                <MarkdownContent content={result} />
               </div>
             </CardContent>
           </Card>

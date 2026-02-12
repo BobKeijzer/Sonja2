@@ -7,6 +7,7 @@ import { Send, Loader2 } from "lucide-react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { ThinkingSteps } from "@/components/thinking-steps"
+import { MarkdownContent } from "@/components/markdown-content"
 import type { ChatMessage } from "@/lib/types"
 import { suggestionCards } from "@/lib/mock-data"
 import { sendChatMessage } from "@/lib/api"
@@ -19,6 +20,18 @@ function makeWelcome(): ChatMessage {
       "Hoi! Ik ben Sonja, jouw digitale marketeer. Waarmee kan ik je helpen?",
     timestamp: new Date(),
   }
+}
+
+/** Format eerdere berichten voor Sonja-context (max laatste 20 berichten). */
+function formatChatHistoryForContext(messages: ChatMessage[]): string {
+  const maxMessages = 20
+  const toUse = messages.slice(-maxMessages)
+  return toUse
+    .map((m) => {
+      const label = m.role === "user" ? "Gebruiker" : "Sonja"
+      return `${label}: ${m.content.trim()}`
+    })
+    .join("\n\n")
 }
 
 export function ChatScreen() {
@@ -62,7 +75,8 @@ export function ChatScreen() {
     setIsLoading(true)
 
     try {
-      const data = await sendChatMessage(messageText)
+      const context = formatChatHistoryForContext(messages)
+      const data = await sendChatMessage(messageText, context)
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -140,27 +154,13 @@ export function ChatScreen() {
                   <ThinkingSteps steps={msg.steps} />
                 )}
                 <div
-                  className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  className={`rounded-2xl px-4 py-3 ${
                     msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-primary text-primary-foreground [&_.markdown-content]:text-primary-foreground [&_.markdown-content_a]:text-primary-foreground/90"
                       : "bg-card text-card-foreground shadow-sm ring-1 ring-border"
                   }`}
                 >
-                  {msg.content.split("\n").map((line, i) => (
-                    <span key={i}>
-                      {line.startsWith("**") && line.endsWith("**") ? (
-                        <strong>{line.slice(2, -2)}</strong>
-                      ) : line.startsWith("- ") ? (
-                        <span className="ml-2 block">
-                          {"  • "}
-                          {line.slice(2)}
-                        </span>
-                      ) : (
-                        line
-                      )}
-                      {i < msg.content.split("\n").length - 1 && <br />}
-                    </span>
-                  ))}
+                  <MarkdownContent content={msg.content} />
                 </div>
                 <p className="mt-1 px-1 text-[10px] text-muted-foreground" suppressHydrationWarning>
                   {msg.timestamp.toLocaleTimeString("nl-NL", {

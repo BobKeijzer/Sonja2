@@ -2,22 +2,58 @@
 
 import React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Search,
   Loader2,
+  Settings,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ThinkingSteps } from "@/components/thinking-steps"
+import { MarkdownContent } from "@/components/markdown-content"
 import type { ThinkingStep } from "@/lib/types"
 import { analyzeWebsite } from "@/lib/api"
+
+const STORAGE_KEY = "sonja-website-prompt"
+
+const DEFAULT_PROMPT = `Scrape de volgende URL met de scrape_website tool en analyseer de pagina op: SEO, contentkwaliteit, tone of voice en call-to-actions. Geef een bondige analyse in het Nederlands.`
+
+function getStoredPrompt(): string {
+  if (typeof window === "undefined") return DEFAULT_PROMPT
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    return saved ?? DEFAULT_PROMPT
+  } catch {
+    return DEFAULT_PROMPT
+  }
+}
 
 export function WebsiteScreen() {
   const [url, setUrl] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [steps, setSteps] = useState<ThinkingStep[]>([])
+  const [showPromptEdit, setShowPromptEdit] = useState(false)
+  const [prompt, setPrompt] = useState("")
+
+  useEffect(() => {
+    setPrompt(getStoredPrompt())
+  }, [])
+
+  const handlePromptChange = (value: string) => {
+    setPrompt(value)
+    try {
+      localStorage.setItem(STORAGE_KEY, value)
+    } catch { /* ignore */ }
+  }
+
+  const resetPromptToDefault = () => {
+    setPrompt(DEFAULT_PROMPT)
+    try {
+      localStorage.setItem(STORAGE_KEY, DEFAULT_PROMPT)
+    } catch { /* ignore */ }
+  }
 
   const handleAnalyze = async () => {
     if (!url.trim()) return
@@ -26,7 +62,7 @@ export function WebsiteScreen() {
     setSteps([])
 
     try {
-      const data = await analyzeWebsite(url)
+      const data = await analyzeWebsite(url, prompt.trim() || undefined)
       setSteps(data.steps)
       setResult(data.response)
     } catch {
@@ -49,9 +85,51 @@ export function WebsiteScreen() {
           </p>
         </div>
 
+        {/* Prompt editor: bewerkbaar, opgeslagen in localStorage; reset herstelt originele standaard */}
+        {showPromptEdit && (
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-xs font-semibold text-card-foreground">
+                  Analyse prompt (bewerkbaar, wordt opgeslagen)
+                </label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={resetPromptToDefault}
+                >
+                  Reset naar standaard
+                </Button>
+              </div>
+              <textarea
+                value={prompt}
+                onChange={(e) => handlePromptChange(e.target.value)}
+                rows={6}
+                className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                De URL wordt automatisch onder de prompt geplakt. Reset herstelt de originele standaardprompt.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* URL input */}
         <Card className="mb-6">
           <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2 pb-3">
+              <span className="text-sm text-muted-foreground">URL</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => setShowPromptEdit((b) => !b)}
+              >
+                <Settings className="h-3.5 w-3.5" />
+                {showPromptEdit ? "Verberg prompt" : "Prompt"}
+              </Button>
+            </div>
             <div className="flex items-center gap-3">
               <input
                 type="url"
@@ -94,26 +172,8 @@ export function WebsiteScreen() {
           <Card>
             <CardContent className="p-5">
               <ThinkingSteps steps={steps} defaultOpen />
-              <div className="mt-3 rounded-lg bg-muted/50 p-4 text-sm leading-relaxed text-card-foreground">
-                {result.split("\n").map((line, i) => (
-                  <span key={i}>
-                    {line.startsWith("**") && line.endsWith("**") ? (
-                      <strong className="text-foreground">
-                        {line.slice(2, -2)}
-                      </strong>
-                    ) : line.startsWith("- ") ? (
-                      <span className="ml-4 block text-muted-foreground">
-                        {"  • "}
-                        {line.slice(2)}
-                      </span>
-                    ) : line.match(/^\d+\./) ? (
-                      <span className="ml-2 block">{line}</span>
-                    ) : (
-                      line
-                    )}
-                    {i < result.split("\n").length - 1 && <br />}
-                  </span>
-                ))}
+              <div className="mt-3 rounded-lg bg-muted/50 p-4">
+                <MarkdownContent content={result} />
               </div>
             </CardContent>
           </Card>

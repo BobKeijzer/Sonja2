@@ -80,17 +80,23 @@ async def chat(request: ChatRequest):
 
 class MeetingsExtractRequest(BaseModel):
     transcript: str = Field(description="Vergadertranscript om actiepunten en leerpunten uit te halen.")
+    custom_prompt: str | None = Field(default=None, description="Optioneel: eigen prompt voor de extractie.")
 
 
 @app.post("/meetings/extract", response_model=ChatResponse)
 async def meetings_extract(request: MeetingsExtractRequest):
     """Haal actiepunten, to-do's en kennis uit een transcript; leerpunten worden opgeslagen in memory.md."""
-    prompt = (
-        "Uit onderstaand vergadertranscript: haal actiepunten, to-do's en leerpunten/kennis. "
-        "Sla de leerpunten en relevante kennis op met write_to_memory. "
-        "Geef daarna een kort overzicht van wat je hebt opgeslagen en de actiepunten.\n\n"
-        "Transcript:\n" + (request.transcript or "")
-    )
+    transcript = request.transcript or ""
+    if request.custom_prompt and request.custom_prompt.strip():
+        prompt = request.custom_prompt.strip() + "\n\nTranscript:\n" + transcript
+    else:
+        prompt = (
+            "Uit onderstaand vergadertranscript: haal actiepunten, to-do's en leerpunten/kennis. "
+            "Sla de leerpunten en relevante kennis op met write_to_memory. "
+            "Roep write_to_memory zo min mogelijk aan: bundel alle leerpunten in één (of heel weinig) dense entry/entries — liever één aanroep met alles samengevat dan veel losse aanroepen. "
+            "Geef daarna een kort overzicht van wat je hebt opgeslagen en de actiepunten.\n\n"
+            "Transcript:\n" + transcript
+        )
     sonja = get_sonja()
     response, steps = await sonja.chat_async(prompt, context="")
     return _to_chat_response(response, steps)
@@ -100,6 +106,7 @@ async def meetings_extract(request: MeetingsExtractRequest):
 
 class AnalyzeWebsiteRequest(BaseModel):
     url: str = Field(description="URL van de te analyseren website (bijv. https://www.afas.nl).")
+    custom_prompt: str | None = Field(default=None, description="Optioneel: eigen prompt voor de analyse.")
 
 
 @app.post("/analyze/website", response_model=ChatResponse)
@@ -108,10 +115,13 @@ async def analyze_website(request: AnalyzeWebsiteRequest):
     url = (request.url or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is verplicht.")
-    prompt = (
-        f"Scrape de volgende URL met de scrape_website tool en analyseer de pagina op: "
-        "SEO, contentkwaliteit, tone of voice en call-to-actions. Geef een bondige analyse in het Nederlands.\n\nURL: " + url
-    )
+    if request.custom_prompt and request.custom_prompt.strip():
+        prompt = request.custom_prompt.strip() + "\n\nURL: " + url
+    else:
+        prompt = (
+            "Scrape de volgende URL met de scrape_website tool en analyseer de pagina op: "
+            "SEO, contentkwaliteit, tone of voice en call-to-actions. Geef een bondige analyse in het Nederlands.\n\nURL: " + url
+        )
     sonja = get_sonja()
     response, steps = await sonja.chat_async(prompt, context="")
     return _to_chat_response(response, steps)
@@ -153,12 +163,10 @@ async def analyze_competitors(request: AnalyzeCompetitorsRequest):
 
 class CompetitorCreate(BaseModel):
     name: str = Field(description="Naam van de concurrent")
-    enabled: bool = True
 
 
 class CompetitorUpdate(BaseModel):
     name: str | None = None
-    enabled: bool | None = None
 
 
 @app.get("/competitors")
@@ -171,7 +179,7 @@ def competitors_list():
 def competitors_create(body: CompetitorCreate):
     """Voeg een concurrent toe."""
     try:
-        c = add_competitor(name=body.name, enabled=body.enabled)
+        c = add_competitor(name=body.name)
         return c.model_dump()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -188,8 +196,8 @@ def competitors_get(competitor_id: str):
 
 @app.patch("/competitors/{competitor_id}")
 def competitors_update(competitor_id: str, body: CompetitorUpdate):
-    """Werk naam of enabled bij."""
-    c = update_competitor(competitor_id, name=body.name, enabled=body.enabled)
+    """Werk naam bij."""
+    c = update_competitor(competitor_id, name=body.name)
     if not c:
         raise HTTPException(status_code=404, detail="Concurrent niet gevonden.")
     return c.model_dump()
@@ -248,6 +256,45 @@ def knowledge_get_content(filename: str):
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
     return KnowledgeContentResponse(content=path.read_text(encoding="utf-8", errors="replace"))
+
+
+class KnowledgeUpdateRequest(BaseModel):
+    content: str = Field(description="Nieuwe inhoud van het bestand.")
+
+
+@app.put("/knowledge/{filename}")
+def knowledge_update(filename: str, body: KnowledgeUpdateRequest):
+    """Bewerk een bestand in knowledge/: schrijf inhoud weg en ververs RAG-index (alleen bij expliciet opslaan)."""
+    if not _safe_filename(filename):
+        raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
+    path = _KNOWLEDGE_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
+    path.write_text(body.content or "", encoding="utf-8")
+    refresh_rag_tool()
+    return {"status": "ok", "filename": filename}
+
+
+class KnowledgeCreateRequest(BaseModel):
+    filename: str = Field(description="Bestandsnaam, bijv. notities.md")
+    content: str = Field(description="Inhoud van het document.")
+
+
+@app.post("/knowledge/create")
+def knowledge_create(request: KnowledgeCreateRequest):
+    """Maak een nieuw document in knowledge/ met opgegeven naam en inhoud. Alleen .md en .txt. RAG-index wordt daarna ververst."""
+    name = (request.filename or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Geen bestandsnaam.")
+    if not name.endswith(".md") and not name.endswith(".txt"):
+        name = name + ".md"
+    if not _safe_filename(name):
+        raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
+    _KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _KNOWLEDGE_DIR / name
+    path.write_text(request.content or "", encoding="utf-8")
+    refresh_rag_tool()
+    return {"status": "ok", "filename": name}
 
 
 @app.post("/knowledge/upload")

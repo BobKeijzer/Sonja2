@@ -16,7 +16,6 @@ _COMPETITORS_FILE = _DATA_DIR / "competitors.json"
 class Competitor(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str = Field(description="Naam van de concurrent (bijv. Exact, Visma)")
-    enabled: bool = Field(default=True, description="Of deze concurrent meedoet bij analyse")
 
 
 def _load() -> list[dict]:
@@ -46,25 +45,23 @@ def get_competitor(competitor_id: str) -> Competitor | None:
     return None
 
 
-def add_competitor(name: str, enabled: bool = True) -> Competitor:
+def add_competitor(name: str) -> Competitor:
     name = (name or "").strip()
     if not name:
         raise ValueError("Naam is verplicht.")
     data = _load()
-    item = Competitor(name=name, enabled=enabled)
+    item = Competitor(name=name)
     data.append(item.model_dump())
     _save(data)
     return item
 
 
-def update_competitor(competitor_id: str, name: str | None = None, enabled: bool | None = None) -> Competitor | None:
+def update_competitor(competitor_id: str, name: str | None = None) -> Competitor | None:
     data = _load()
     for i, d in enumerate(data):
         if d.get("id") == competitor_id:
             if name is not None:
                 data[i]["name"] = name.strip()
-            if enabled is not None:
-                data[i]["enabled"] = enabled
             _save(data)
             return Competitor.model_validate(data[i])
     return None

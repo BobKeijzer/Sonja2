@@ -34,7 +34,6 @@ export interface AgendaItem {
 export interface Competitor {
   id: string
   name: string
-  enabled: boolean
 }
 
 export interface KnowledgeFile {

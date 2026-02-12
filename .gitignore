@@ -16,8 +16,9 @@ ENV/
 dist/
 build/
 
-# Backend data (agenda, etc.)
+# Backend data (agenda, RAG vector store lokaal)
 backend/data/
+backend/chroma_db/
 
 # IDE
 .idea/

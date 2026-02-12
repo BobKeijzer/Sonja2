@@ -1,0 +1,26 @@
+# Git and IDE
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.mypy_cache
+.idea
+.vscode
+*.md
+!README.md
+
+# Local data (mount or env in production)
+chroma_db/
+.env
+.env.*
+*.local
+
+# Docs / tests (optional: remove if you want tests in image)
+tests/
+*_test.py
+test_*
+conftest.py

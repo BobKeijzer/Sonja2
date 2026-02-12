@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ThinkingSteps } from "@/components/thinking-steps"
+import { MarkdownContent } from "@/components/markdown-content"
 import type { Competitor, ThinkingStep } from "@/lib/types"
 import {
   getCompetitors,
@@ -22,6 +23,8 @@ import {
   analyzeCompetitors,
 } from "@/lib/api"
 
+const STORAGE_KEY = "sonja-competitors-prompt"
+
 const DEFAULT_PROMPT = `Gebruik de spy_competitor_research tool voor elk van de geselecteerde concurrenten.
 
 Voor elke concurrent:
@@ -29,6 +32,16 @@ Voor elke concurrent:
 - Sla de belangrijkste bevindingen op
 
 Geef daarna per concurrent een samenvatting (recente ontwikkelingen, sterke punten, marktpositie) en sluit af met concrete actiepunten voor AFAS marketing op basis van de gecombineerde analyse.`
+
+function getStoredPrompt(): string {
+  if (typeof window === "undefined") return DEFAULT_PROMPT
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    return saved ?? DEFAULT_PROMPT
+  } catch {
+    return DEFAULT_PROMPT
+  }
+}
 
 export function CompetitorsScreen() {
   const [competitors, setCompetitors] = useState<Competitor[]>([])
@@ -40,15 +53,33 @@ export function CompetitorsScreen() {
   const [steps, setSteps] = useState<ThinkingStep[]>([])
   const [loading, setLoading] = useState(true)
   const [showPromptEdit, setShowPromptEdit] = useState(false)
-  const [customPrompt, setCustomPrompt] = useState("")
+  const [prompt, setPrompt] = useState("")
 
-  // Load from backend
+  // Load competitors from backend + prompt from localStorage (after mount)
   useEffect(() => {
     getCompetitors()
       .then(setCompetitors)
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    setPrompt(getStoredPrompt())
+  }, [])
+
+  const handlePromptChange = (value: string) => {
+    setPrompt(value)
+    try {
+      localStorage.setItem(STORAGE_KEY, value)
+    } catch { /* ignore */ }
+  }
+
+  const resetPromptToDefault = () => {
+    setPrompt(DEFAULT_PROMPT)
+    try {
+      localStorage.setItem(STORAGE_KEY, DEFAULT_PROMPT)
+    } catch { /* ignore */ }
+  }
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -92,7 +123,7 @@ export function CompetitorsScreen() {
       .map((c) => c.name)
 
     try {
-      const data = await analyzeCompetitors(selectedNames, customPrompt.trim() || undefined)
+      const data = await analyzeCompetitors(selectedNames, prompt.trim() || undefined)
       setSteps(data.steps)
       setAnalysisResult(data.response)
     } catch {
@@ -157,32 +188,31 @@ export function CompetitorsScreen() {
           </div>
         </div>
 
-        {/* Prompt editor */}
+        {/* Prompt editor: bewerkbaar, opgeslagen in localStorage; reset herstelt originele standaard */}
         {showPromptEdit && (
           <Card className="mb-4">
             <CardContent className="p-4">
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs font-semibold text-card-foreground">
-                  Analyse prompt (optioneel)
+                  Analyse prompt (bewerkbaar, wordt opgeslagen)
                 </label>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7 text-xs"
-                  onClick={() => setCustomPrompt("")}
+                  onClick={resetPromptToDefault}
                 >
                   Reset naar standaard
                 </Button>
               </div>
               <textarea
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                placeholder={DEFAULT_PROMPT}
-                rows={6}
-                className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring"
+                value={prompt}
+                onChange={(e) => handlePromptChange(e.target.value)}
+                rows={8}
+                className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <p className="mt-2 text-[10px] text-muted-foreground">
-                Laat leeg voor de standaard prompt. De geselecteerde concurrenten worden automatisch toegevoegd.
+                Pas de prompt aan naar wens. Bij &quot;Analyseer&quot; worden de geselecteerde concurrenten automatisch toegevoegd. Reset herstelt de originele standaardprompt.
               </p>
             </CardContent>
           </Card>
@@ -278,26 +308,8 @@ export function CompetitorsScreen() {
           <Card className="mt-6">
             <CardContent className="p-5">
               <ThinkingSteps steps={steps} defaultOpen />
-              <div className="mt-3 rounded-lg bg-muted/50 p-4 text-sm leading-relaxed text-card-foreground">
-                {analysisResult.split("\n").map((line, i) => (
-                  <span key={i}>
-                    {line.startsWith("**") && line.endsWith("**") ? (
-                      <strong className="text-foreground">
-                        {line.slice(2, -2)}
-                      </strong>
-                    ) : line.startsWith("- ") ? (
-                      <span className="ml-4 block text-muted-foreground">
-                        {"  • "}
-                        {line.slice(2)}
-                      </span>
-                    ) : line.match(/^\d+\./) ? (
-                      <span className="ml-2 block">{line}</span>
-                    ) : (
-                      line
-                    )}
-                    {i < analysisResult.split("\n").length - 1 && <br />}
-                  </span>
-                ))}
+              <div className="mt-3 rounded-lg bg-muted/50 p-4">
+                <MarkdownContent content={analysisResult} />
               </div>
             </CardContent>
           </Card>

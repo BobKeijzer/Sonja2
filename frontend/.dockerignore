@@ -1,0 +1,28 @@
+# Dependencies (reinstalled in image)
+node_modules
+.pnpm-store
+
+# Build output (rebuilt in image)
+.next
+out
+dist
+
+# Git and IDE
+.git
+.gitignore
+.idea
+.vscode
+*.md
+!README.md
+
+# Env (pass at runtime)
+.env
+.env.*
+!.env.example
+
+# Misc
+*.log
+.DS_Store
+coverage
+.nyc_output
+.turbo
