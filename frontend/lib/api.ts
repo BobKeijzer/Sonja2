@@ -11,6 +11,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const TOOL_EMOJI: Record<string, string> = {
   "Search the internet with Serper": "🔎",
   "Read website content": "🌐",
+  "read_file": "📄",
   "read_knowledge_file": "📄",
   "rag_search": "🧠",
   "write_to_memory": "💾",
@@ -237,4 +238,120 @@ export async function deleteKnowledgeFile(filename: string): Promise<void> {
     method: "DELETE",
   })
   if (!res.ok) throw new Error("Failed to delete file")
+}
+
+// ─── Geheugen (memory/) – alleen lijst, open, bewerken, verwijderen ─────────────────
+
+export async function getMemoryFiles(): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/memory`)
+  if (!res.ok) throw new Error("Failed to fetch memory files")
+  const data = await res.json()
+  return data.files ?? []
+}
+
+export async function getMemoryContent(filename: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/memory/${encodeURIComponent(filename)}`)
+  if (!res.ok) throw new Error("Failed to fetch memory content")
+  const data = await res.json()
+  return data.content ?? ""
+}
+
+export async function updateMemoryFile(
+  filename: string,
+  content: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/memory/${encodeURIComponent(filename)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  })
+  if (!res.ok) throw new Error("Failed to update memory file")
+}
+
+export async function deleteMemoryFile(filename: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/memory/${encodeURIComponent(filename)}`, {
+    method: "DELETE",
+  })
+  if (!res.ok) throw new Error("Failed to delete memory file")
+}
+
+// ─── Nieuws (RSS + generate) ─────────────────────────────────────────────────────
+
+export interface NewsPrompts {
+  inhaker: string
+  linkedin: string
+  afas_betekenis: string
+}
+
+export type NewsGenerateTask =
+  | "inhaker"
+  | "linkedin"
+  | "afas_betekenis"
+  | "custom"
+
+export async function getNewsItems(): Promise<
+  { items: import("./types").NewsItem[]; last_updated: string | null } 
+> {
+  const res = await fetch(`${API_BASE}/news`)
+  if (!res.ok) throw new Error("Failed to fetch news")
+  const data = await res.json()
+  return {
+    items: data.items ?? [],
+    last_updated: data.last_updated ?? null,
+  }
+}
+
+export async function getNewsFeeds(): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/news/feeds`)
+  if (!res.ok) throw new Error("Failed to fetch news feeds")
+  const data = await res.json()
+  return data.urls ?? []
+}
+
+export async function updateNewsFeeds(urls: string[]): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/news/feeds`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ urls }),
+  })
+  if (!res.ok) throw new Error("Failed to update news feeds")
+  const data = await res.json()
+  return data.urls ?? []
+}
+
+export async function getNewsPrompts(): Promise<NewsPrompts> {
+  const res = await fetch(`${API_BASE}/news/prompts`)
+  if (!res.ok) throw new Error("Failed to fetch news prompts")
+  return res.json()
+}
+
+export async function updateNewsPrompts(
+  prompts: Partial<NewsPrompts>
+): Promise<NewsPrompts> {
+  const res = await fetch(`${API_BASE}/news/prompts`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(prompts),
+  })
+  if (!res.ok) throw new Error("Failed to update news prompts")
+  return res.json()
+}
+
+export async function generateNewsContent(
+  newsItem: import("./types").NewsItem,
+  task: NewsGenerateTask,
+  customPrompt?: string
+): Promise<string> {
+  const res = await fetch(`${API_BASE}/news/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      news_item: newsItem,
+      task,
+      custom_prompt: task === "custom" ? (customPrompt ?? "") : undefined,
+    }),
+  })
+  if (!res.ok) throw new Error("Failed to generate news content")
+  const data = await res.json()
+  return data.content ?? ""
 }

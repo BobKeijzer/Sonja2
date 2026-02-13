@@ -1,7 +1,7 @@
 "use client"
 
-import Image from "next/image"
 import { Badge } from "@/components/ui/badge"
+import { SonjaAvatar } from "@/components/sonja-avatar"
 import { Card, CardContent } from "@/components/ui/card"
 import {
   Lightbulb,
@@ -59,13 +59,8 @@ export function CvScreen() {
           <CardContent className="p-0">
             <div className="bg-gradient-to-r from-primary/5 to-secondary/5 px-8 py-10">
               <div className="flex flex-col items-center text-center">
-                <div className="relative mb-4 h-28 w-28 overflow-hidden rounded-full ring-4 ring-card shadow-lg">
-                  <Image
-                    src="/sonja.png"
-                    alt="Sonja - Digitale Marketeer"
-                    fill
-                    className="object-cover"
-                  />
+                <div className="mb-4 ring-4 ring-card rounded-full shadow-lg w-fit">
+                  <SonjaAvatar mood="blij" size="xl" alt="Sonja - Digitale Marketeer" />
                 </div>
                 <h1 className="text-2xl font-bold text-foreground">Sonja</h1>
                 <p className="mt-1 text-sm font-medium text-primary">

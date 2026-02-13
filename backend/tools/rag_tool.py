@@ -19,6 +19,7 @@ from crewai_tools.tools.rag import RagToolConfig, VectorDbConfig
 from pydantic import BaseModel, Field
 
 _KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
+_MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory"
 _CHROMA_PERSIST_DIR = Path(__file__).resolve().parent.parent / "chroma_db"
 _COLLECTION_NAME = "sonja_knowledge"
 
@@ -72,30 +73,32 @@ def _make_rag_tool() -> RagTool:
             summarize=True,
             collection_name=_COLLECTION_NAME,
         )
-    if _KNOWLEDGE_DIR.is_dir():
-        import time
-        import warnings
-        last_err: Exception | None = None
-        for attempt in range(3):
-            try:
+    import time
+    import warnings
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            if _KNOWLEDGE_DIR.is_dir():
                 tool.add(data_type="directory", path=str(_KNOWLEDGE_DIR))
-                last_err = None
+            if _MEMORY_DIR.is_dir():
+                tool.add(data_type="directory", path=str(_MEMORY_DIR))
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(2)
+            else:
+                warnings.warn(
+                    f"RAG add directory failed (VoyageAI/Chroma). Controleer VOYAGEAI_API_KEY. Fout: {e}",
+                    stacklevel=0,
+                )
                 break
-            except Exception as e:
-                last_err = e
-                if attempt < 2:
-                    time.sleep(2)
-                else:
-                    warnings.warn(
-                        f"RAG add directory failed (VoyageAI/Chroma). Controleer VOYAGEAI_API_KEY. Fout: {e}",
-                        stacklevel=0,
-                    )
-                    break
     return tool
 
 
 def refresh_rag_tool() -> None:
-    """Herbouw de RAG-index: wis chroma_db volledig en vul opnieuw vanuit knowledge/."""
+    """Herbouw de RAG-index: wis chroma_db volledig en vul opnieuw vanuit knowledge/ en memory/."""
     global _rag_tool_inner
     _clear_chroma_store()
     _rag_tool_inner = _make_rag_tool()
@@ -113,7 +116,7 @@ class _RefreshableRagTool(BaseTool):
     """Wrapper rond de echte RagTool zodat refresh_rag_tool() de inner tool vervangt."""
     name: str = "rag_search"
     description: str = (
-        "Semantisch zoeken in de knowledge base (knowledge/). "
+        "Semantisch zoeken in de knowledge base (knowledge/) en herinneringen (memory/). "
         "Gebruik wanneer je relevante informatie wilt vinden zonder een heel bestand te lezen. "
         "Geef een zoekvraag op."
     )

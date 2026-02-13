@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
   Search,
   Loader2,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { SonjaAvatar } from "@/components/sonja-avatar"
 import { ThinkingSteps } from "@/components/thinking-steps"
 import { MarkdownContent } from "@/components/markdown-content"
 import type { ThinkingStep } from "@/lib/types"
@@ -36,10 +37,38 @@ export function WebsiteScreen() {
   const [steps, setSteps] = useState<ThinkingStep[]>([])
   const [showPromptEdit, setShowPromptEdit] = useState(false)
   const [prompt, setPrompt] = useState("")
+  const [resultAvatar, setResultAvatar] = useState<"blij" | "koffie">("blij")
+  const [loadingPhase, setLoadingPhase] = useState<"denken" | "regelen">("denken")
+  const koffieTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     setPrompt(getStoredPrompt())
   }, [])
+
+  useEffect(() => {
+    if (!result || isAnalyzing) return
+    setResultAvatar("blij")
+    if (koffieTimeoutRef.current) clearTimeout(koffieTimeoutRef.current)
+    koffieTimeoutRef.current = setTimeout(() => setResultAvatar("koffie"), 3000)
+    return () => {
+      if (koffieTimeoutRef.current) clearTimeout(koffieTimeoutRef.current)
+    }
+  }, [result, isAnalyzing])
+
+  useEffect(() => {
+    if (!isAnalyzing) {
+      setLoadingPhase("denken")
+      if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
+      return
+    }
+    loadingIntervalRef.current = setInterval(() => {
+      setLoadingPhase((p) => (p === "denken" ? "regelen" : "denken"))
+    }, 2000)
+    return () => {
+      if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
+    }
+  }, [isAnalyzing])
 
   const handlePromptChange = (value: string) => {
     setPrompt(value)
@@ -160,16 +189,25 @@ export function WebsiteScreen() {
         {/* Loading */}
         {isAnalyzing && (
           <div className="flex flex-col items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <SonjaAvatar mood={loadingPhase} size="lg" alt="Sonja" />
             <p className="mt-3 text-sm text-muted-foreground">
-              Sonja analyseert de pagina...
+              {loadingPhase === "denken"
+                ? "Sonja is aan het nadenken..."
+                : "Sonja is aan het regelen..."}
             </p>
           </div>
         )}
 
         {/* Results */}
         {result && !isAnalyzing && (
-          <Card>
+          <>
+            <div className="mb-3 flex items-center gap-2">
+              <SonjaAvatar mood={resultAvatar} size="sm" alt="Sonja" />
+              <span className="text-sm text-muted-foreground">
+                {resultAvatar === "blij" ? "Klaar!" : "Tot de volgende keer."}
+              </span>
+            </div>
+            <Card>
             <CardContent className="p-5">
               <ThinkingSteps steps={steps} defaultOpen />
               <div className="mt-3 rounded-lg bg-muted/50 p-4">
@@ -177,6 +215,7 @@ export function WebsiteScreen() {
               </div>
             </CardContent>
           </Card>
+          </>
         )}
 
         {/* Empty state */}

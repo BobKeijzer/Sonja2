@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
   Plus,
   Trash2,
@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { SonjaAvatar } from "@/components/sonja-avatar"
 import { ThinkingSteps } from "@/components/thinking-steps"
 import { MarkdownContent } from "@/components/markdown-content"
 import type { Competitor, ThinkingStep } from "@/lib/types"
@@ -54,6 +55,10 @@ export function CompetitorsScreen() {
   const [loading, setLoading] = useState(true)
   const [showPromptEdit, setShowPromptEdit] = useState(false)
   const [prompt, setPrompt] = useState("")
+  const [resultAvatar, setResultAvatar] = useState<"blij" | "koffie">("blij")
+  const [loadingPhase, setLoadingPhase] = useState<"denken" | "regelen">("denken")
+  const koffieTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load competitors from backend + prompt from localStorage (after mount)
   useEffect(() => {
@@ -66,6 +71,30 @@ export function CompetitorsScreen() {
   useEffect(() => {
     setPrompt(getStoredPrompt())
   }, [])
+
+  useEffect(() => {
+    if (!analysisResult || isAnalyzing) return
+    setResultAvatar("blij")
+    if (koffieTimeoutRef.current) clearTimeout(koffieTimeoutRef.current)
+    koffieTimeoutRef.current = setTimeout(() => setResultAvatar("koffie"), 3000)
+    return () => {
+      if (koffieTimeoutRef.current) clearTimeout(koffieTimeoutRef.current)
+    }
+  }, [analysisResult, isAnalyzing])
+
+  useEffect(() => {
+    if (!isAnalyzing) {
+      setLoadingPhase("denken")
+      if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
+      return
+    }
+    loadingIntervalRef.current = setInterval(() => {
+      setLoadingPhase((p) => (p === "denken" ? "regelen" : "denken"))
+    }, 2000)
+    return () => {
+      if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
+    }
+  }, [isAnalyzing])
 
   const handlePromptChange = (value: string) => {
     setPrompt(value)
@@ -303,9 +332,30 @@ export function CompetitorsScreen() {
           </CardContent>
         </Card>
 
+        {/* Loading */}
+        {isAnalyzing && (
+          <Card className="mt-6">
+            <CardContent className="flex flex-col items-center justify-center py-16">
+              <SonjaAvatar mood={loadingPhase} size="lg" alt="Sonja" />
+              <p className="mt-3 text-sm text-muted-foreground">
+                {loadingPhase === "denken"
+                  ? "Sonja is aan het nadenken..."
+                  : "Sonja is aan het regelen..."}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Analysis results */}
         {analysisResult && !isAnalyzing && (
-          <Card className="mt-6">
+          <>
+            <div className="mt-6 mb-3 flex items-center gap-2">
+              <SonjaAvatar mood={resultAvatar} size="sm" alt="Sonja" />
+              <span className="text-sm text-muted-foreground">
+                {resultAvatar === "blij" ? "Klaar!" : "Tot de volgende keer."}
+              </span>
+            </div>
+            <Card className="mt-0">
             <CardContent className="p-5">
               <ThinkingSteps steps={steps} defaultOpen />
               <div className="mt-3 rounded-lg bg-muted/50 p-4">
@@ -313,6 +363,7 @@ export function CompetitorsScreen() {
               </div>
             </CardContent>
           </Card>
+          </>
         )}
       </div>
     </div>

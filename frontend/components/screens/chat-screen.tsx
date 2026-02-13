@@ -3,9 +3,10 @@
 import React from "react"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, Loader2 } from "lucide-react"
-import Image from "next/image"
+import { Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SonjaAvatar } from "@/components/sonja-avatar"
+import type { SonjaMood } from "@/components/sonja-avatar"
 import { ThinkingSteps } from "@/components/thinking-steps"
 import { MarkdownContent } from "@/components/markdown-content"
 import type { ChatMessage } from "@/lib/types"
@@ -39,12 +40,45 @@ export function ChatScreen() {
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(true)
+  /** Na antwoord: eerst blij, na 3s koffie tot volgende bericht */
+  const [postResponseAvatar, setPostResponseAvatar] = useState<"blij" | "koffie">("blij")
+  /** Tijdens laden: afwisselend denken / regelen */
+  const [loadingPhase, setLoadingPhase] = useState<"denken" | "regelen">("denken")
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const koffieTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
+  // Na antwoord: na 3s naar koffie
+  useEffect(() => {
+    if (koffieTimeoutRef.current) clearTimeout(koffieTimeoutRef.current)
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+    if (!isLoading && lastAssistant) {
+      koffieTimeoutRef.current = setTimeout(() => setPostResponseAvatar("koffie"), 3000)
+    }
+    return () => {
+      if (koffieTimeoutRef.current) clearTimeout(koffieTimeoutRef.current)
+    }
+  }, [messages, isLoading])
+
+  // Tijdens laden: elke 2s afwisselen denken / regelen
+  useEffect(() => {
+    if (!isLoading) {
+      setLoadingPhase("denken")
+      if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
+      return
+    }
+    loadingIntervalRef.current = setInterval(() => {
+      setLoadingPhase((p) => (p === "denken" ? "regelen" : "denken"))
+    }, 2000)
+    return () => {
+      if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
+    }
+  }, [isLoading])
 
   // Check settings for showSuggestions
   useEffect(() => {
@@ -73,6 +107,7 @@ export function ChatScreen() {
     setMessages((prev) => [...prev.filter((m) => m.id !== "welcome"), userMessage])
     setInput("")
     setIsLoading(true)
+    setPostResponseAvatar("blij")
 
     try {
       const context = formatChatHistoryForContext(messages)
@@ -85,6 +120,7 @@ export function ChatScreen() {
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, assistantMessage])
+      setPostResponseAvatar("blij")
     } catch {
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -132,19 +168,25 @@ export function ChatScreen() {
             </div>
           )}
 
-          {messages.map((msg) => (
+          {messages.map((msg, idx) => {
+            const isLastAssistant =
+              msg.role === "assistant" &&
+              idx === messages.length - 1 &&
+              !messages.some((m, i) => i > idx && m.role === "assistant")
+            const avatarMood: SonjaMood =
+              msg.role === "assistant"
+                ? isLastAssistant
+                  ? postResponseAvatar
+                  : "blij"
+                : "blij"
+            return (
             <div
               key={msg.id}
               className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
             >
               {msg.role === "assistant" && (
-                <div className="relative mt-1 h-8 w-8 shrink-0 overflow-hidden rounded-full">
-                  <Image
-                    src="/sonja.png"
-                    alt="Sonja"
-                    fill
-                    className="object-cover"
-                  />
+                <div className="mt-1 shrink-0">
+                  <SonjaAvatar mood={avatarMood} size="mdLarge" alt="Sonja" />
                 </div>
               )}
               <div
@@ -170,22 +212,18 @@ export function ChatScreen() {
                 </p>
               </div>
             </div>
-          ))}
+          )})}
 
           {isLoading && (
             <div className="flex gap-3">
-              <div className="relative mt-1 h-8 w-8 shrink-0 overflow-hidden rounded-full">
-                <Image
-                  src="/sonja.png"
-                  alt="Sonja"
-                  fill
-                  className="object-cover"
-                />
+              <div className="mt-1 shrink-0">
+                <SonjaAvatar mood={loadingPhase} size="mdLarge" alt="Sonja" />
               </div>
               <div className="flex items-center gap-2 rounded-2xl bg-card px-4 py-3 shadow-sm ring-1 ring-border">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 <span className="text-sm text-muted-foreground">
-                  Sonja denkt na...
+                  {loadingPhase === "denken"
+                    ? "Sonja is aan het nadenken..."
+                    : "Sonja is aan het regelen..."}
                 </span>
               </div>
             </div>

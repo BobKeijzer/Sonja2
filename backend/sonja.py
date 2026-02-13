@@ -7,9 +7,9 @@ als tools aangeroepen.
 Huidige tools (tools/):
 - serper_search_tool: zoekresultaten en snippets op het web (Serper)
 - scrape_website_tool: scrape een URL voor volledige pagina-inhoud
-- knowledge_file_read_tool: lees een volledig bestand uit knowledge/ (bijv. afas_info.md)
-- write_to_memory_tool: append een geheugen-entry aan memory.md (datum/tijd automatisch; geen overschrijven)
-- rag_tool (rag_search): semantisch zoeken in knowledge/
+- file_read_tool: lees een bestand uit knowledge/ (bestandsnaam) of memory/ (memory/bestandsnaam)
+- write_to_memory_tool: maak een nieuwe herinnering aan in memory/ (titel + inhoud; bestandsnaam automatisch)
+- rag_tool (rag_search): semantisch zoeken in knowledge/ en memory/
 - spy_competitor_research_tool: roept research-subagent aan voor concurrentie-onderzoek
 - send_email_tool: stuur e-mail naar opgegeven adressen (o.a. resultaat geplande taken)
 - list_agenda_items_tool: toon alle agenda-items
@@ -35,7 +35,7 @@ from crewai.tools import BaseTool
 from tools import (
     serper_search_tool,
     scrape_website_tool,
-    knowledge_file_read_tool,
+    file_read_tool,
     write_to_memory_tool,
     rag_tool,
     spy_competitor_research_tool,
@@ -71,6 +71,7 @@ def _make_recording_tool(inner_tool: Any, steps_ctx: ContextVar) -> BaseTool:
 
 
 _KNOWLEDGE_DIR = Path(__file__).resolve().parent / "knowledge"
+_MEMORY_DIR = Path(__file__).resolve().parent / "memory"
 _WEEKDAYS_NL = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"]
 
 
@@ -90,11 +91,18 @@ def _get_knowledge_filenames() -> list[str]:
     return sorted(names)
 
 
+def _get_memory_filenames() -> list[str]:
+    """Lijst van .md bestandsnamen in memory/."""
+    if not _MEMORY_DIR.is_dir():
+        return []
+    return sorted(f.name for f in _MEMORY_DIR.glob("*.md") if f.is_file())
+
+
 def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
     all_tools = [
         serper_search_tool,
         scrape_website_tool,
-        knowledge_file_read_tool,
+        file_read_tool,
         write_to_memory_tool,
         rag_tool,
         spy_competitor_research_tool,
@@ -119,19 +127,19 @@ def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
             "Je bent Sonja, jullie digitale collega: help met content, concurrentie-analyse en alles wat marketing betreft. "
             "Stel altijd eerst vragen om te begrijpen wat iemand wil (begrijpen > aannames); daarna pas aan de slag. "
             "Deel proactief inzichten en trends waar relevant — net als bij de koffieautomaat. "
-            "Gebruik de juiste tools: serper_search en scrape_website voor web, read_knowledge_file voor volledige bestanden, rag_search voor semantisch zoeken in de knowledge base, "
-            "write_to_memory om voorkeuren/feiten/lessen in memory.md op te slaan (append), spy_competitor_research voor concurrentie-onderzoek, "
+            "Gebruik de juiste tools: serper_search en scrape_website voor web, read_file voor bestanden in knowledge/ of memory/ (gebruik memory/bestandsnaam voor herinneringen), rag_search voor semantisch zoeken in knowledge en herinneringen, "
+            "write_to_memory om een nieuwe herinnering aan te maken (titel + inhoud; één bestand per herinnering in memory/), spy_competitor_research voor concurrentie-onderzoek, "
             "list_agenda_items / add_agenda_item / update_agenda_item / delete_agenda_item voor de agenda, send_email voor resultaten. "
-            "Leer van feedback: sla het op met write_to_memory zodat je elke dag een beetje slimmer wordt. "
-            "Belangrijk: roep write_to_memory zo min mogelijk aan — als je iets naar memory.md wilt schrijven, bundel alles in één dense entry en doe liefst één aanroep (niet meerdere kleine). "
+            "Leer van feedback: sla het op met write_to_memory (één aanroep met titel en inhoud). "
+            "Roep write_to_memory zo min mogelijk aan: bundel in één dense entry per herinnering. "
             "Wees behulpzaam, informeel waar het past, en antwoord in het Nederlands. Een grapje mag — dat hoort bij AFAS (Doen, Vertrouwen, Gek, Familie)."
         ),
         backstory=(
             "Je bent Sonja, de digitale marketeer van AFAS. Persoonlijkheid: proactief (deel spontaan inzichten), nieuwsgierig (vragen vóór je iets aanneemt), "
             "sociaal (informeel, humor, aandacht voor de persoon — Familie), leergierig (feedback opslaan en beter worden). "
             "Hoe je werkt: (1) Eerst vragen stellen — wat wil iemand bereiken, voor wie? (2) Met die context aan de slag; Doen, niet lullen. "
-            "(3) Feedback en leerpunten opslaan in memory.md met write_to_memory (zo min mogelijk aanroepen: één dense entry per keer). "
-            "Tools: read_knowledge_file voor bestanden in knowledge/, rag_search voor vector search, write_to_memory voor geheugen (append; datum/tijd automatisch; bundel in één entry). "
+            "(3) Feedback en leerpunten opslaan als herinnering met write_to_memory (titel + inhoud; één bestand per herinnering). "
+            "Tools: read_file voor knowledge/ of memory/ (memory/bestandsnaam), rag_search voor knowledge en herinneringen, write_to_memory om een nieuw bestand in memory/ aan te maken. "
             "Agenda: list_agenda_items, add_agenda_item, update_agenda_item, delete_agenda_item; bij geplande taken send_email voor het resultaat. "
             "Subagents roep je aan via tools (bijv. spy_competitor_research). Antwoord altijd in het Nederlands."
         ),
@@ -151,11 +159,17 @@ def _build_prompt(message: str, context: str) -> str:
         )
     now = _now_with_weekday()
     knowledge_files = _get_knowledge_filenames()
+    memory_files = _get_memory_filenames()
     context_lines = [f"[Huidige datum en tijd: {now}.]"]
     if knowledge_files:
         context_lines.append(
-            f"[Alleen als de gebruiker ernaar vraagt: er zijn knowledge-bestanden beschikbaar (bestanden: {', '.join(knowledge_files)}). "
-            "Gebruik read_knowledge_file met de bestandsnaam of rag_search om semantisch te zoeken.]"
+            f"[Kennis: er zijn knowledge-bestanden beschikbaar (bestanden: {', '.join(knowledge_files)}). "
+            "Gebruik read_file met de bestandsnaam of rag_search om semantisch te zoeken.]"
+        )
+    if memory_files:
+        context_lines.append(
+            f"[Geheugen: er zijn herinneringen beschikbaar (bestanden: {', '.join(memory_files)}). "
+            "Gebruik read_file met memory/bestandsnaam om een herinnering te lezen, of rag_search om semantisch te zoeken.]"
         )
     return "\n\n".join(context_lines) + "\n\n" + prompt
 

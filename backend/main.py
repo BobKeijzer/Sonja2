@@ -3,11 +3,14 @@ FastAPI app voor Sonja – chat, agenda en scheduler.
 Start met: uv run uvicorn main:app --reload (vanuit backend/) of met API_PORT uit .env.
 """
 
+import json
+import re
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
+import feedparser
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -85,7 +88,7 @@ class MeetingsExtractRequest(BaseModel):
 
 @app.post("/meetings/extract", response_model=ChatResponse)
 async def meetings_extract(request: MeetingsExtractRequest):
-    """Haal actiepunten, to-do's en kennis uit een transcript; leerpunten worden opgeslagen in memory.md."""
+    """Haal actiepunten, to-do's en kennis uit een transcript; leerpunten worden opgeslagen als herinnering in memory/."""
     transcript = request.transcript or ""
     if request.custom_prompt and request.custom_prompt.strip():
         prompt = request.custom_prompt.strip() + "\n\nTranscript:\n" + transcript
@@ -211,20 +214,320 @@ def competitors_delete(competitor_id: str):
     return None
 
 
-# --- Kennis & Geheugen (knowledge/) – voor frontend tabblad: lijst, open bestand, upload, verwijderen ---
+# --- Nieuws (RSS-feeds uit data/news_feeds.json; standaardprompts uit data/news_prompts.json) ---
+
+_DATA_DIR = Path(__file__).resolve().parent / "data"
+_NEWS_FEEDS_FILE = _DATA_DIR / "news_feeds.json"
+_NEWS_PROMPTS_FILE = _DATA_DIR / "news_prompts.json"
+_NEWS_CACHE: dict = {"items": [], "last_updated": None}
+_NEWS_CACHE_TTL_SEC = 120
+
+
+def _default_news_feeds() -> list[str]:
+    return [
+        "https://feeds.nos.nl/nosnieuws",
+        "https://www.nu.nl/rss",
+        "https://www.ad.nl/nieuws/rss",
+    ]
+
+
+def _load_news_feeds() -> list[str]:
+    if not _NEWS_FEEDS_FILE.is_file():
+        return _default_news_feeds()
+    try:
+        data = json.loads(_NEWS_FEEDS_FILE.read_text(encoding="utf-8"))
+        urls = data.get("urls")
+        if isinstance(urls, list) and urls:
+            return [u for u in urls if isinstance(u, str) and u.strip().startswith("http")]
+        return _default_news_feeds()
+    except Exception:
+        return _default_news_feeds()
+
+
+def _save_news_feeds(urls: list[str]) -> None:
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _NEWS_FEEDS_FILE.write_text(
+        json.dumps({"urls": urls}, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    global _NEWS_CACHE
+    _NEWS_CACHE = {"items": [], "last_updated": None}
+
+
+def _extract_image_url(entry) -> str | None:
+    if getattr(entry, "enclosures", None):
+        for enc in entry.enclosures:
+            if enc.get("type", "").startswith("image/"):
+                href = enc.get("href") or enc.get("url")
+                if href:
+                    return href
+    if getattr(entry, "media_content", None) and len(entry.media_content) > 0:
+        m = entry.media_content[0]
+        if isinstance(m, dict) and m.get("type", "").startswith("image/"):
+            return m.get("url")
+    summary = (getattr(entry, "summary", None) or "") or (getattr(entry, "description", None) or "")
+    if summary:
+        match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', summary, re.I)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _fetch_news_items() -> list[dict]:
+    urls = _load_news_feeds()
+    items: list[dict] = []
+    seen_links: set[str] = set()
+    for feed_url in urls:
+        try:
+            parsed = feedparser.parse(
+                feed_url,
+                request_headers={"User-Agent": "Sonja/1.0"},
+            )
+            source = (parsed.feed.get("title") or feed_url).strip()[:80]
+            for entry in getattr(parsed, "entries", [])[:30]:
+                link = (entry.get("link") or "").strip()
+                if not link or link in seen_links:
+                    continue
+                seen_links.add(link)
+                title = (entry.get("title") or "").strip()
+                summary = (entry.get("summary") or entry.get("description") or "")
+                if hasattr(summary, "replace"):
+                    summary = re.sub(r"<[^>]+>", " ", summary)
+                    summary = re.sub(r"\s+", " ", summary).strip()[:400]
+                else:
+                    summary = ""
+                published = entry.get("published_parsed") or entry.get("updated_parsed")
+                published_at = ""
+                if published:
+                    try:
+                        published_at = datetime.utcfromtimestamp(time.mktime(published)).isoformat() + "Z"
+                    except Exception:
+                        published_at = entry.get("published") or entry.get("updated") or ""
+                image_url = _extract_image_url(entry)
+                items.append({
+                    "title": title or "Geen titel",
+                    "url": link,
+                    "summary": summary,
+                    "source": source,
+                    "published_at": published_at,
+                    "image_url": image_url if image_url else None,
+                })
+        except Exception:
+            continue
+    items.sort(key=lambda x: x.get("published_at") or "", reverse=True)
+    return items[:80]
+
+
+_NEWS_TASK_PROMPTS_DEFAULT = {
+    "inhaker": (
+        "Maak een korte, pakkende inhaker: een social post (1-3 zinnen) waarmee AFAS op dit nieuws kan inhaken. "
+        "Speels en herkenbaar, passend bij AFAS (Doen, Vertrouwen, Gek, Familie). Geen hashtags tenzij heel natuurlijk."
+    ),
+    "linkedin": (
+        "Schrijf een LinkedIn-post (korte alinea's) die dit nieuws koppelt aan AFAS en onze doelgroep (HR, finance, ondernemers). "
+        "Professioneel maar toegankelijk. Sluit af met een duidelijke gedachte of vraag. Geen overdreven hashtags."
+    ),
+    "afas_betekenis": (
+        "Analyseer: wat betekent dit nieuws voor AFAS? Geef in 2-4 zinnen: kansen, risico's of positionering, "
+        "en eventueel concrete actiepunten, aanbevelingen of standpunten voor AFAS marketing."
+    ),
+}
+
+
+def _load_news_prompts() -> dict[str, str]:
+    if not _NEWS_PROMPTS_FILE.is_file():
+        return dict(_NEWS_TASK_PROMPTS_DEFAULT)
+    try:
+        data = json.loads(_NEWS_PROMPTS_FILE.read_text(encoding="utf-8"))
+        out = dict(_NEWS_TASK_PROMPTS_DEFAULT)
+        for key in ("inhaker", "linkedin", "afas_betekenis"):
+            if key in data and isinstance(data[key], str) and data[key].strip():
+                out[key] = data[key].strip()
+        return out
+    except Exception:
+        return dict(_NEWS_TASK_PROMPTS_DEFAULT)
+
+
+def _save_news_prompts(prompts: dict[str, str]) -> None:
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _NEWS_PROMPTS_FILE.write_text(
+        json.dumps(prompts, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+class NewsFeedsResponse(BaseModel):
+    urls: list[str] = Field(description="Lijst van RSS feed-URLs.")
+
+
+class NewsFeedsUpdateRequest(BaseModel):
+    urls: list[str] = Field(description="Nieuwe lijst van RSS feed-URLs.")
+
+
+class NewsItemResponse(BaseModel):
+    title: str
+    url: str
+    summary: str
+    source: str
+    published_at: str
+    image_url: str | None = None
+
+
+class NewsListResponse(BaseModel):
+    items: list[NewsItemResponse] = Field(description="Nieuwsitems uit de geconfigureerde feeds.")
+    last_updated: str | None = Field(default=None, description="ISO-timestamp van laatste fetch.")
+
+
+class NewsPromptsResponse(BaseModel):
+    inhaker: str = Field(description="Standaardprompt voor Inhaker-knop.")
+    linkedin: str = Field(description="Standaardprompt voor LinkedIn-knop.")
+    afas_betekenis: str = Field(description="Standaardprompt voor Betekenis voor AFAS-knop.")
+
+
+class NewsPromptsUpdateRequest(BaseModel):
+    inhaker: str | None = None
+    linkedin: str | None = None
+    afas_betekenis: str | None = None
+
+
+@app.get("/news/prompts", response_model=NewsPromptsResponse)
+def news_get_prompts():
+    p = _load_news_prompts()
+    return NewsPromptsResponse(
+        inhaker=p.get("inhaker", _NEWS_TASK_PROMPTS_DEFAULT["inhaker"]),
+        linkedin=p.get("linkedin", _NEWS_TASK_PROMPTS_DEFAULT["linkedin"]),
+        afas_betekenis=p.get("afas_betekenis", _NEWS_TASK_PROMPTS_DEFAULT["afas_betekenis"]),
+    )
+
+
+@app.put("/news/prompts", response_model=NewsPromptsResponse)
+def news_update_prompts(body: NewsPromptsUpdateRequest):
+    current = _load_news_prompts()
+    if body.inhaker is not None:
+        current["inhaker"] = body.inhaker.strip()
+    if body.linkedin is not None:
+        current["linkedin"] = body.linkedin.strip()
+    if body.afas_betekenis is not None:
+        current["afas_betekenis"] = body.afas_betekenis.strip()
+    _save_news_prompts(current)
+    return NewsPromptsResponse(
+        inhaker=current["inhaker"],
+        linkedin=current["linkedin"],
+        afas_betekenis=current["afas_betekenis"],
+    )
+
+
+@app.get("/news/feeds", response_model=NewsFeedsResponse)
+def news_get_feeds():
+    return NewsFeedsResponse(urls=_load_news_feeds())
+
+
+@app.put("/news/feeds", response_model=NewsFeedsResponse)
+def news_update_feeds(body: NewsFeedsUpdateRequest):
+    urls = [u.strip() for u in (body.urls or []) if isinstance(u, str) and u.strip()]
+    valid = [u for u in urls if u.startswith("http://") or u.startswith("https://")]
+    if not valid and urls:
+        raise HTTPException(status_code=400, detail="Alleen geldige http(s)-URLs toegestaan.")
+    _save_news_feeds(valid if valid else _default_news_feeds())
+    return NewsFeedsResponse(urls=_load_news_feeds())
+
+
+@app.get("/news", response_model=NewsListResponse)
+def news_list():
+    global _NEWS_CACHE
+    now = time.time()
+    if (
+        _NEWS_CACHE.get("items")
+        and _NEWS_CACHE.get("last_updated") is not None
+        and (now - _NEWS_CACHE["last_updated"]) < _NEWS_CACHE_TTL_SEC
+    ):
+        return NewsListResponse(
+            items=[NewsItemResponse(**i) for i in _NEWS_CACHE["items"]],
+            last_updated=datetime.utcfromtimestamp(_NEWS_CACHE["last_updated"]).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+    items = _fetch_news_items()
+    _NEWS_CACHE = {"items": items, "last_updated": now}
+    return NewsListResponse(
+        items=[NewsItemResponse(**i) for i in items],
+        last_updated=datetime.utcfromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+
+class NewsGenerateRequest(BaseModel):
+    news_item: dict = Field(description="Nieuwsitem: title, url, summary, source.")
+    task: str = Field(description="inhaker | linkedin | afas_betekenis | custom")
+    custom_prompt: str | None = Field(default=None, description="Bij task=custom: wat moet Sonja doen?")
+
+
+class NewsGenerateResponse(BaseModel):
+    content: str = Field(description="Door Sonja gegenereerde tekst.")
+
+
+@app.post("/news/generate", response_model=NewsGenerateResponse)
+async def news_generate(body: NewsGenerateRequest):
+    item = body.news_item or {}
+    title = (item.get("title") or "").strip()
+    url = (item.get("url") or "").strip()
+    summary = (item.get("summary") or "").strip()
+    source = (item.get("source") or "").strip()
+    task = (body.task or "").strip().lower()
+    custom = (body.custom_prompt or "").strip()
+
+    if not title and not url:
+        raise HTTPException(status_code=400, detail="news_item moet ten minste title of url bevatten.")
+
+    if task == "custom" and not custom:
+        raise HTTPException(status_code=400, detail="Bij task 'custom' is custom_prompt verplicht.")
+
+    prompts = _load_news_prompts()
+    if task in prompts:
+        instruction = prompts[task]
+    elif task == "custom":
+        instruction = custom
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="task moet zijn: inhaker, linkedin, afas_betekenis of custom.",
+        )
+
+    context = f"Nieuwsitem:\nTitel: {title}\nBron: {source}\nSamenvatting: {summary}\nURL: {url}"
+    prompt = (
+        f"{context}\n\n"
+        "De gebruiker vraagt het volgende:\n"
+        f"{instruction}\n\n"
+        "Gebruik vooral de titel en samenvatting hierboven; dat is meestal voldoende. "
+        "Gebruik scrape_website of serper_search alleen als je echt meer context nodig hebt (bijv. concrete cijfers of citaten). "
+        "Niet standaard het artikel scrapen — veel sites geven een privacy-/cookiegate terug. "
+        "Geef alleen de gevraagde tekst terug in markdown waar passend, geen uitleg ervoor."
+    )
+
+    sonja = get_sonja()
+    response, _ = await sonja.chat_async(prompt, context="")
+    return NewsGenerateResponse(content=(response or "").strip())
+
+
+# --- Kennis (knowledge/) – voor frontend tabblad Kennis: lijst, open bestand, upload, verwijderen ---
+# Herinneringen staan in memory/ als losse bestanden. In knowledge/ mag ook een bestand memory.md staan (gewoon een kennisbestand).
 
 _KNOWLEDGE_DIR = Path(__file__).resolve().parent / "knowledge"
-_MEMORY_FILE = _KNOWLEDGE_DIR / "memory.md"
+_MEMORY_DIR = Path(__file__).resolve().parent / "memory"
 
 
 def _get_knowledge_filenames() -> list[str]:
-    """Lijst van .md en .txt bestandsnamen in knowledge/ (zelfde logica als in sonja)."""
+    """Lijst van .md en .txt bestandsnamen in knowledge/."""
     if not _KNOWLEDGE_DIR.is_dir():
         return []
     names = []
     for ext in ("*.md", "*.txt"):
         names.extend(f.name for f in _KNOWLEDGE_DIR.glob(ext) if f.is_file())
     return sorted(names)
+
+
+def _get_memory_filenames() -> list[str]:
+    """Lijst van .md bestandsnamen in memory/."""
+    if not _MEMORY_DIR.is_dir():
+        return []
+    return sorted(f.name for f in _MEMORY_DIR.glob("*.md") if f.is_file())
 
 
 def _safe_filename(name: str) -> bool:
@@ -234,7 +537,7 @@ def _safe_filename(name: str) -> bool:
 
 
 class KnowledgeListResponse(BaseModel):
-    files: list[str] = Field(description="Bestandsnamen in knowledge/ (o.a. memory.md).")
+    files: list[str] = Field(description="Bestandsnamen in knowledge/.")
 
 
 class KnowledgeContentResponse(BaseModel):
@@ -243,7 +546,7 @@ class KnowledgeContentResponse(BaseModel):
 
 @app.get("/knowledge", response_model=KnowledgeListResponse)
 def knowledge_list():
-    """Lijst van alle bestandsnamen in knowledge/ (voor tabblad Kennis & Geheugen: klik om te openen)."""
+    """Lijst van alle bestandsnamen in knowledge/ (voor tabblad Kennis: klik om te openen)."""
     return KnowledgeListResponse(files=_get_knowledge_filenames())
 
 
@@ -317,7 +620,7 @@ def knowledge_upload(file: UploadFile):
 
 @app.delete("/knowledge/{filename}")
 def knowledge_delete(filename: str):
-    """Verwijder een bestand uit knowledge/. RAG-index wordt daarna ververst. memory.md mag; write_to_memory maakt het opnieuw aan indien nodig."""
+    """Verwijder een bestand uit knowledge/. RAG-index wordt daarna ververst."""
     if not _safe_filename(filename):
         raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
     path = _KNOWLEDGE_DIR / filename
@@ -330,23 +633,66 @@ def knowledge_delete(filename: str):
 
 @app.post("/knowledge/refresh")
 def knowledge_refresh():
-    """Herbouw de RAG-index over knowledge/. Wordt ook na upload/delete automatisch aangeroepen."""
+    """Herbouw de RAG-index over knowledge/ en memory/. Wordt ook na upload/delete automatisch aangeroepen."""
     refresh_rag_tool()
     return {"status": "ok", "message": "RAG-index opnieuw opgebouwd."}
 
 
-# --- Geheugen (memory.md) – shortcut voor content (tabblad kan ook GET /knowledge/memory.md gebruiken) ---
+# --- Geheugen (memory/) – losse .md-bestanden per herinnering; alleen Sonja kan aanmaken ---
 
-class MemoryResponse(BaseModel):
-    content: str = Field(description="Volledige inhoud van memory.md voor weergave.")
+class MemoryListResponse(BaseModel):
+    files: list[str] = Field(description="Bestandsnamen in memory/.")
 
 
-@app.get("/memory", response_model=MemoryResponse)
-def get_memory():
-    """Volledige inhoud van memory.md. Frontend tabblad Geheugen kan dit of GET /knowledge/memory.md gebruiken."""
-    if not _MEMORY_FILE.exists():
-        return MemoryResponse(content="")
-    return MemoryResponse(content=_MEMORY_FILE.read_text(encoding="utf-8", errors="replace"))
+class MemoryContentResponse(BaseModel):
+    content: str = Field(description="Inhoud van het memory-bestand.")
+
+
+class MemoryUpdateRequest(BaseModel):
+    content: str = Field(description="Nieuwe inhoud van het bestand.")
+
+
+@app.get("/memory", response_model=MemoryListResponse)
+def memory_list():
+    """Lijst van alle memory-bestanden (voor tabblad Geheugen)."""
+    return MemoryListResponse(files=_get_memory_filenames())
+
+
+@app.get("/memory/{filename}", response_model=MemoryContentResponse)
+def memory_get_content(filename: str):
+    """Inhoud van één bestand uit memory/."""
+    if not _safe_filename(filename):
+        raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
+    path = _MEMORY_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
+    return MemoryContentResponse(content=path.read_text(encoding="utf-8", errors="replace"))
+
+
+@app.put("/memory/{filename}")
+def memory_update(filename: str, body: MemoryUpdateRequest):
+    """Bewerk een memory-bestand. RAG-index wordt daarna ververst."""
+    if not _safe_filename(filename):
+        raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
+    path = _MEMORY_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
+    path.write_text(body.content or "", encoding="utf-8")
+    refresh_rag_tool()
+    return {"status": "ok", "filename": filename}
+
+
+@app.delete("/memory/{filename}")
+def memory_delete(filename: str):
+    """Verwijder een memory-bestand. RAG-index wordt daarna ververst."""
+    if not _safe_filename(filename):
+        raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
+    path = _MEMORY_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
+    path.unlink()
+    refresh_rag_tool()
+    return {"status": "ok", "filename": filename}
 
 
 # --- Agenda CRUD ---

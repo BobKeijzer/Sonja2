@@ -9,7 +9,9 @@ import { AgendaScreen } from "@/components/screens/agenda-screen"
 import { MeetingsScreen } from "@/components/screens/meetings-screen"
 import { WebsiteScreen } from "@/components/screens/website-screen"
 import { CompetitorsScreen } from "@/components/screens/competitors-screen"
-import { MemoryScreen } from "@/components/screens/memory-screen"
+import { NewsScreen } from "@/components/screens/news-screen"
+import { KennisScreen } from "@/components/screens/kennis-screen"
+import { GeheugenScreen } from "@/components/screens/geheugen-screen"
 import { CvScreen } from "@/components/screens/cv-screen"
 import { SettingsScreen } from "@/components/screens/settings-screen"
 import type { ScreenId } from "@/lib/types"
@@ -20,8 +22,10 @@ const screens: Record<ScreenId, React.ComponentType> = {
   vergaderingen: MeetingsScreen,
   website: WebsiteScreen,
   concurrenten: CompetitorsScreen,
-  geheugen: MemoryScreen,
+  nieuws: NewsScreen,
   cv: CvScreen,
+  kennis: KennisScreen,
+  geheugen: GeheugenScreen,
   instellingen: SettingsScreen,
 }
 

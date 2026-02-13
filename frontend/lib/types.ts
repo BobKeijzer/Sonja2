@@ -41,12 +41,23 @@ export interface KnowledgeFile {
   content?: string
 }
 
+export interface NewsItem {
+  title: string
+  url: string
+  summary: string
+  source: string
+  published_at: string
+  image_url?: string | null
+}
+
 export type ScreenId =
   | "chat"
   | "agenda"
   | "vergaderingen"
   | "website"
   | "concurrenten"
-  | "geheugen"
+  | "nieuws"
   | "cv"
+  | "kennis"
+  | "geheugen"
   | "instellingen"

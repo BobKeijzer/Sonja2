@@ -4,41 +4,45 @@ AI-gestuurde marketingassistent voor AFAS Software: CrewAI (Claude) als backend,
 
 ## Tech stack
 
-| Laag      | Technologie                          |
-|-----------|--------------------------------------|
-| Backend   | Python 3.11, FastAPI, CrewAI (Anthropic Claude) |
-| Frontend  | Next.js 15, React 19, TypeScript     |
-| UI        | Tailwind CSS, Shadcn/ui               |
-| Zoeken    | Serper API                            |
-| RAG       | Chroma (lokaal), VoyageAI embeddings  |
-| Data      | JSON-bestanden, knowledge/ als kennisbank |
+| Laag     | Technologie                                      |
+| -------- | ------------------------------------------------ |
+| Backend  | Python 3.11, FastAPI, CrewAI (Anthropic Claude) |
+| Frontend | Next.js 15, React 19, TypeScript                 |
+| UI       | Tailwind CSS, Shadcn/ui                          |
+| Zoeken   | Serper API                                       |
+| RAG      | Chroma (lokaal), VoyageAI embeddings             |
+| Nieuws   | RSS (feedparser), configuratie in `data/`        |
+| Data     | JSON-bestanden; `knowledge/` en `memory/`        |
 
 ## Functionaliteiten
 
-- **Chat** – Gesprekken met Sonja, inclusief chatgeschiedenis en weergave van gebruikte tools
-- **Agenda** – Taken en afspraken (eenmalig en terugkerend, cron)
-- **Vergaderingen** – Transcripties analyseren, actiepunten extraheren
-- **Website-analyse** – Scrapen en analyseren van URLs
-- **Concurrentie** – Concurrenten beheren en onderzoeken
-- **Kennisbank** – Geheugen (memory.md) en RAG-zoeken over knowledge/
-- **E-mail** – Notificaties via SMTP (o.a. Outlook)
+- **Chat** – Gesprekken met Sonja, chatgeschiedenis, denkstappen (tools) en dynamische avatars (denken/regelen tijdens wachten, blij → koffie na antwoord)
+- **Agenda** – Taken en afspraken (eenmalig en terugkerend, cron), e-mail bij afgeronde taken
+- **Vergaderingen** – Transcripties analyseren, actiepunten en leerpunten; herinneringen in `memory/`
+- **Website-analyse** – Scrapen en analyseren van URLs (SEO, content, tone of voice)
+- **Concurrentie** – Concurrenten beheren en onderzoeken (spy_competitor_research)
+- **Nieuws** – RSS-feeds (o.a. NOS, Nu.nl, AD), gegenereerde inhakers, LinkedIn-posts en “betekenis voor AFAS”; eigen prompts en feeds instelbaar
+- **Kennis** – Documenten in `knowledge/` (upload, nieuw, bewerken); Sonja gebruikt ze via RAG en read_file
+- **Geheugen** – Herinneringen in `memory/` (één bestand per herinnering); alleen Sonja maakt ze aan via write_to_memory; bewerken/verwijderen in de UI
+- **E-mail** – Notificaties via SMTP (o.a. Outlook) voor agenda en resultaten
 
 ## Projectstructuur
 
 ```
 AfasSonja/
-├── backend/          # FastAPI, CrewAI-agent, tools
-│   ├── main.py       # API (poort 8000)
-│   ├── sonja.py      # Agent-definitie
-│   ├── tools/        # RAG, zoeken, agenda, e-mail, etc.
-│   ├── knowledge/    # Kennisbestanden + chroma_db (RAG)
-│   └── data/         # Agenda, concurrenten (JSON)
-├── frontend/         # Next.js App Router
+├── backend/           # FastAPI, CrewAI-agent, tools
+│   ├── main.py        # API (poort 8000): chat, agenda, kennis, memory, nieuws, vergaderingen, website, concurrenten
+│   ├── sonja.py       # Agent-definitie, tools, knowledge + memory in context
+│   ├── tools/         # RAG, read_file, write_to_memory, Serper, agenda, e-mail, spy, etc.
+│   ├── knowledge/     # Kennisbestanden (.md/.txt) + chroma_db (RAG)
+│   ├── memory/        # Herinneringen (losse .md per entry; alleen via write_to_memory)
+│   └── data/          # agenda.json, competitors.json, news_feeds.json, news_prompts.json
+├── frontend/          # Next.js App Router
 │   ├── app/
-│   ├── components/
-│   └── lib/          # API-client, types
+│   ├── components/    # o.a. SonjaAvatar (mood), screens (chat, agenda, vergaderingen, website, concurrenten, nieuws, kennis, geheugen, cv, instellingen)
+│   └── lib/           # API-client, types
 ├── docker-compose.yml
-├── .env              # API-keys, zie hieronder
+├── .env               # API-keys, zie hieronder
 └── README.md
 ```
 
@@ -55,16 +59,12 @@ AfasSonja/
 Maak een `.env` in de **root** en vul in (backend leest deze bij Docker via `env_file`):
 
 - `ANTHROPIC_API_KEY` – Claude (CrewAI)
-- `SERPER_API_KEY` – Google Search
+- `SERPER_API_KEY` – Zoeken (Serper)
 - `VOYAGEAI_API_KEY` – RAG-embeddings
 - `OPENAI_MODEL_NAME` – bijv. `anthropic/claude-sonnet-4-5-20250929`
 - `API_PORT=8000`
-- **E-mail (optioneel)** – nodig voor send_email-tool en resultaten geplande taken:
-  - `SMTP_HOST` – bijv. `smtp-mail.outlook.com`
-  - `SMTP_PORT` – meestal `587`
-  - `SMTP_USER` – inlog-e-mailadres
-  - `SMTP_PASSWORD` – wachtwoord (of app-wachtwoord)
-  - `EMAIL_FROM` – afzenderadres (vaak gelijk aan `SMTP_USER`)
+- **E-mail (optioneel)** – voor send_email en geplande agenda-taken:
+  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`
 
 ### Backend
 
@@ -90,13 +90,9 @@ Frontend: http://localhost:3000. Zie [frontend/README.md](frontend/README.md) vo
 Vanuit de **root**:
 
 ```bash
-# Bouwen en starten
 docker compose up --build
-
 # Backend: http://localhost:8000
 # Frontend: http://localhost:3000
 ```
 
-De frontend praat met de backend op `http://localhost:8000`. Zorg dat je een `.env` in de root hebt (of geef backend env via `docker compose`), anders ontbreken API-keys.
-
-Zie [backend/README.md](backend/README.md) en [frontend/README.md](frontend/README.md) voor Docker-details per onderdeel.
+De frontend gebruikt de backend op `http://localhost:8000`. Zorg voor een `.env` in de root met de benodigde API-keys.

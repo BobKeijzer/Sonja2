@@ -8,22 +8,28 @@ import {
   FileText,
   Globe,
   Eye,
-  Brain,
+  Newspaper,
   User,
+  Brain,
   Settings,
 } from "lucide-react"
-import Image from "next/image"
 import { AfasLogo } from "@/components/afas-logo"
+import { SonjaAvatar } from "@/components/sonja-avatar"
 import type { ScreenId } from "@/lib/types"
 
-const navItems: { id: ScreenId; label: string; icon: React.ElementType }[] = [
+const topNavItems: { id: ScreenId; label: string; icon: React.ElementType }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "agenda", label: "Agenda", icon: Calendar },
   { id: "vergaderingen", label: "Vergaderingen", icon: FileText },
-  { id: "website", label: "Website Analyse", icon: Globe },
+  { id: "website", label: "Website", icon: Globe },
   { id: "concurrenten", label: "Concurrenten", icon: Eye },
-  { id: "geheugen", label: "Geheugen", icon: Brain },
+  { id: "nieuws", label: "Nieuws", icon: Newspaper },
+]
+
+const bottomNavItems: { id: ScreenId; label: string; icon: React.ElementType }[] = [
   { id: "cv", label: "Sonja's CV", icon: User },
+  { id: "kennis", label: "Kennis", icon: FileText },
+  { id: "geheugen", label: "Geheugen", icon: Brain },
   { id: "instellingen", label: "Instellingen", icon: Settings },
 ]
 
@@ -37,13 +43,8 @@ export function AppSidebar({ activeScreen, onNavigate }: AppSidebarProps) {
     <aside className="flex h-screen w-60 flex-col border-r border-sidebar-border bg-sidebar">
       {/* Profile header */}
       <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-4">
-        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full ring-2 ring-primary/20">
-          <Image
-            src="/sonja.png"
-            alt="Sonja avatar"
-            fill
-            className="object-cover"
-          />
+        <div className="ring-2 ring-primary/20 rounded-full">
+          <SonjaAvatar mood="blij" size="md" alt="Sonja avatar" />
         </div>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-sidebar-foreground">
@@ -55,10 +56,31 @@ export function AppSidebar({ activeScreen, onNavigate }: AppSidebarProps) {
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3">
+      {/* Navigation: top + bottom block */}
+      <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-3">
         <ul className="flex flex-col gap-0.5">
-          {navItems.map((item) => {
+          {topNavItems.map((item) => {
+            const isActive = activeScreen === item.id
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => onNavigate(item.id)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                  }`}
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+        <ul className="mt-auto flex flex-col gap-0.5 pt-3">
+          {bottomNavItems.map((item) => {
             const isActive = activeScreen === item.id
             return (
               <li key={item.id}>

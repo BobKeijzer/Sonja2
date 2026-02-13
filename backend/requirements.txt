@@ -14,5 +14,8 @@ python-dotenv>=1.0.0
 # CORS
 python-multipart>=0.0.9
 
+# News (RSS)
+feedparser>=6.0.0
+
 # Agenda recurring (cron)
 croniter>=2.0.0
