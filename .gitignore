@@ -16,7 +16,7 @@ ENV/
 dist/
 build/
 
-# Backend data (agenda, RAG vector store lokaal)
+# Backend data (agenda, RAG vector store, kennis, geheugen – worden aangemaakt bij gebruik)
 backend/data/
 backend/chroma_db/
 backend/knowledge/
