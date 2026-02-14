@@ -20,17 +20,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import type { NewsItem } from "@/lib/types"
+import type { NewsItem, ThinkingStep } from "@/lib/types"
 import {
   getNewsItems,
   getNewsFeeds,
   updateNewsFeeds,
   getNewsPrompts,
   updateNewsPrompts,
-  generateNewsContent,
+  generateNewsContentStream,
   type NewsPrompts,
   type NewsGenerateTask,
 } from "@/lib/api"
+import { ThinkingSteps } from "@/components/thinking-steps"
 
 const EIGEN_PLACEHOLDER =
   "Bijv. Schrijf een Twitter-draad van 3 tweets over dit nieuws voor AFAS, of een korte nieuwsbrief-snippet (2-3 zinnen) voor onze B2B-nieuwsbrief."
@@ -45,6 +46,7 @@ export function NewsScreen() {
   const [feeds, setFeeds] = useState<string[]>([])
   const [resultModal, setResultModal] = useState<{ content: string; title: string } | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [pendingSteps, setPendingSteps] = useState<ThinkingStep[]>([])
   const [customPrompt, setCustomPrompt] = useState("")
   const [customItem, setCustomItem] = useState<NewsItem | null>(null)
   const [copied, setCopied] = useState(false)
@@ -114,8 +116,14 @@ export function NewsScreen() {
   ) => {
     setGenerating(true)
     setResultModal(null)
+    setPendingSteps([])
     try {
-      const content = await generateNewsContent(item, task, custom)
+      const { content } = await generateNewsContentStream(
+        item,
+        task,
+        task === "custom" ? custom : undefined,
+        (step) => setPendingSteps((prev) => [...prev, step])
+      )
       setResultModal({ content, title: item.title })
     } catch {
       setResultModal({
@@ -123,6 +131,7 @@ export function NewsScreen() {
         title: item.title,
       })
     } finally {
+      setPendingSteps([])
       setGenerating(false)
     }
   }
@@ -181,6 +190,23 @@ export function NewsScreen() {
             </Button>
           </div>
         </div>
+
+        {/* Generating: dynamische stappen */}
+        {generating && (
+          <Card className="mb-6">
+            <CardContent className="flex flex-col items-center py-6">
+              <SonjaAvatar mood="denken" size="lg" alt="Sonja" />
+              <p className="mt-2 text-sm text-muted-foreground">
+                Sonja is aan het schrijven...
+              </p>
+              {pendingSteps.length > 0 && (
+                <div className="mt-4 w-full max-w-xl">
+                  <ThinkingSteps steps={pendingSteps} defaultOpen />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Prompts modal */}
         {showPrompts && prompts && (
@@ -394,9 +420,9 @@ export function NewsScreen() {
             >
               <div className="mb-3 flex items-center gap-2">
                 <SonjaAvatar mood={resultModalAvatar} size="sm" alt="Sonja" />
-                <span className="text-sm text-muted-foreground">
-                  {resultModalAvatar === "blij" ? "Klaar!" : "Tot de volgende keer."}
-                </span>
+                {resultModalAvatar === "blij" && (
+                  <span className="text-sm text-muted-foreground">Klaar!</span>
+                )}
               </div>
               <DialogHeader>
                 <DialogTitle className="break-words pr-0">{resultModal.title}</DialogTitle>

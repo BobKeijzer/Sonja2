@@ -33,7 +33,7 @@ const personalityTraits = [
   {
     title: "Analytisch",
     description:
-      "Onderbouwt elke aanbeveling met data en bronnen. Laat altijd haar denkstappen zien.",
+      "Onderbouwt elke aanbeveling met data en bronnen. Laat altijd haar stappen zien.",
     icon: BarChart3,
   },
   {

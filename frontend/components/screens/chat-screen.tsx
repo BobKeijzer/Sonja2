@@ -9,9 +9,9 @@ import { SonjaAvatar } from "@/components/sonja-avatar"
 import type { SonjaMood } from "@/components/sonja-avatar"
 import { ThinkingSteps } from "@/components/thinking-steps"
 import { MarkdownContent } from "@/components/markdown-content"
-import type { ChatMessage } from "@/lib/types"
+import type { ChatMessage, ThinkingStep } from "@/lib/types"
 import { suggestionCards } from "@/lib/mock-data"
-import { sendChatMessage } from "@/lib/api"
+import { sendChatMessageStream } from "@/lib/api"
 
 function makeWelcome(): ChatMessage {
   return {
@@ -42,8 +42,10 @@ export function ChatScreen() {
   const [showSuggestions, setShowSuggestions] = useState(true)
   /** Na antwoord: eerst blij, na 3s koffie tot volgende bericht */
   const [postResponseAvatar, setPostResponseAvatar] = useState<"blij" | "koffie">("blij")
-  /** Tijdens laden: afwisselend denken / regelen */
+  /** Tijdens laden: alleen denken-avatar; teksten wisselen langzaam */
   const [loadingPhase, setLoadingPhase] = useState<"denken" | "regelen">("denken")
+  /** Stappen die tijdens het streamen binnenkomen (dynamische opbouw) */
+  const [pendingSteps, setPendingSteps] = useState<ThinkingStep[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const koffieTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -65,7 +67,7 @@ export function ChatScreen() {
     }
   }, [messages, isLoading])
 
-  // Tijdens laden: elke 2s afwisselen denken / regelen
+  // Tijdens laden: elke 5s afwisselen denken / regelen
   useEffect(() => {
     if (!isLoading) {
       setLoadingPhase("denken")
@@ -74,7 +76,7 @@ export function ChatScreen() {
     }
     loadingIntervalRef.current = setInterval(() => {
       setLoadingPhase((p) => (p === "denken" ? "regelen" : "denken"))
-    }, 2000)
+    }, 5000)
     return () => {
       if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
     }
@@ -108,10 +110,15 @@ export function ChatScreen() {
     setInput("")
     setIsLoading(true)
     setPostResponseAvatar("blij")
+    setPendingSteps([])
 
     try {
       const context = formatChatHistoryForContext(messages)
-      const data = await sendChatMessage(messageText, context)
+      const data = await sendChatMessageStream(
+        messageText,
+        context,
+        (step) => setPendingSteps((prev) => [...prev, step])
+      )
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -131,6 +138,7 @@ export function ChatScreen() {
       setMessages((prev) => [...prev, errorMessage])
     } finally {
       setIsLoading(false)
+      setPendingSteps([])
     }
   }
 
@@ -215,17 +223,24 @@ export function ChatScreen() {
           )})}
 
           {isLoading && (
-            <div className="flex gap-3">
-              <div className="mt-1 shrink-0">
-                <SonjaAvatar mood={loadingPhase} size="mdLarge" alt="Sonja" />
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-3">
+                <div className="mt-1 shrink-0">
+                  <SonjaAvatar mood="denken" size="mdLarge" alt="Sonja" />
+                </div>
+                <div className="flex items-center gap-2 rounded-2xl bg-card px-4 py-3 shadow-sm ring-1 ring-border">
+                  <span className="text-sm text-muted-foreground">
+                    {loadingPhase === "denken"
+                      ? "Sonja is aan het nadenken…"
+                      : "Sonja is aan het regelen…"}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 rounded-2xl bg-card px-4 py-3 shadow-sm ring-1 ring-border">
-                <span className="text-sm text-muted-foreground">
-                  {loadingPhase === "denken"
-                    ? "Sonja is aan het nadenken..."
-                    : "Sonja is aan het regelen..."}
-                </span>
-              </div>
+              {pendingSteps.length > 0 && (
+                <div className="ml-11">
+                  <ThinkingSteps steps={pendingSteps} defaultOpen />
+                </div>
+              )}
             </div>
           )}
           <div ref={messagesEndRef} />

@@ -46,6 +46,129 @@ export async function sendChatMessage(
   return { response: data.response, steps: addEmojis(data.steps || []) }
 }
 
+/** Chat met SSE-stream: onStep wordt per stap aangeroepen, daarna wordt { response, steps } geretourneerd. */
+export async function sendChatMessageStream(
+  message: string,
+  context: string,
+  onStep: (step: ThinkingStep) => void
+): Promise<{ response: string; steps: ThinkingStep[] }> {
+  const res = await fetch(`${API_BASE}/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, context }),
+  })
+  if (!res.ok) throw new Error("Chat stream failed")
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No response body")
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let currentEvent = ""
+  let currentData = ""
+  const steps: ThinkingStep[] = []
+  let response = ""
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split("\n")
+    buffer = lines.pop() ?? ""
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        currentEvent = line.slice(6).trim()
+      } else if (line.startsWith("data:")) {
+        currentData = line.slice(5).trim()
+      } else if (line === "" && currentData) {
+        try {
+          const data = JSON.parse(currentData)
+          if (currentEvent === "step") {
+            const step: ThinkingStep = {
+              tool: data.tool ?? "",
+              summary: data.summary ?? null,
+            }
+            const withEmoji = addEmojis([step])[0]
+            steps.push(withEmoji)
+            onStep(withEmoji)
+          } else if (currentEvent === "done" && data.response !== undefined) {
+            response = data.response
+          }
+        } catch {
+          // ignore parse errors
+        }
+        currentEvent = ""
+        currentData = ""
+      }
+    }
+  }
+  if (buffer.trim()) {
+    const lines = buffer.split("\n")
+    for (const line of lines) {
+      if (line.startsWith("event:")) currentEvent = line.slice(6).trim()
+      else if (line.startsWith("data:")) currentData = line.slice(5).trim()
+      else if (line === "" && currentData) {
+        try {
+          const data = JSON.parse(currentData)
+          if (currentEvent === "done" && data.response !== undefined) response = data.response
+        } catch { /* ignore */ }
+        currentEvent = ""
+        currentData = ""
+      }
+    }
+  }
+  return { response, steps }
+}
+
+/** Hergebruikbare SSE-parser: leest event step + done uit een stream, roept onStep aan, retourneert response + steps. */
+async function parseSSEStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onStep: (step: ThinkingStep) => void
+): Promise<{ response: string }> {
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let currentEvent = ""
+  let currentData = ""
+  let response = ""
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split("\n")
+    buffer = lines.pop() ?? ""
+    for (const line of lines) {
+      if (line.startsWith("event:")) currentEvent = line.slice(6).trim()
+      else if (line.startsWith("data:")) currentData = line.slice(5).trim()
+      else if (line === "" && currentData) {
+        try {
+          const data = JSON.parse(currentData)
+          if (currentEvent === "step") {
+            const step: ThinkingStep = { tool: data.tool ?? "", summary: data.summary ?? null }
+            const withEmoji = addEmojis([step])[0]
+            onStep(withEmoji)
+          } else if (currentEvent === "done" && data.response !== undefined) {
+            response = data.response
+          }
+        } catch { /* ignore */ }
+        currentEvent = ""
+        currentData = ""
+      }
+    }
+  }
+  if (buffer.trim()) {
+    const lines = buffer.split("\n")
+    for (const line of lines) {
+      if (line.startsWith("event:")) currentEvent = line.slice(6).trim()
+      else if (line.startsWith("data:")) currentData = line.slice(5).trim()
+      else if (line === "" && currentData) {
+        try {
+          const data = JSON.parse(currentData)
+          if (currentEvent === "done" && data.response !== undefined) response = data.response
+        } catch { /* ignore */ }
+      }
+    }
+  }
+  return { response }
+}
+
 // ─── Meetings ────────────────────────────────────────────────────────────────
 
 export async function extractMeeting(
@@ -65,6 +188,32 @@ export async function extractMeeting(
   return { response: data.response, steps: addEmojis(data.steps || []) }
 }
 
+/** Vergadering extract met SSE: onStep per stap, daarna { response, steps }. */
+export async function extractMeetingStream(
+  transcript: string,
+  customPrompt: string | undefined,
+  onStep: (step: ThinkingStep) => void
+): Promise<{ response: string; steps: ThinkingStep[] }> {
+  const res = await fetch(`${API_BASE}/meetings/extract/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      transcript,
+      ...(customPrompt?.trim() ? { custom_prompt: customPrompt.trim() } : {}),
+    }),
+  })
+  if (!res.ok) throw new Error("Meeting extraction stream failed")
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No response body")
+  const steps: ThinkingStep[] = []
+  const wrapped = (s: ThinkingStep) => {
+    steps.push(s)
+    onStep(s)
+  }
+  const { response } = await parseSSEStream(reader, wrapped)
+  return { response, steps }
+}
+
 // ─── Website Analysis ────────────────────────────────────────────────────────
 
 export async function analyzeWebsite(
@@ -82,6 +231,32 @@ export async function analyzeWebsite(
   if (!res.ok) throw new Error("Website analysis failed")
   const data = await res.json()
   return { response: data.response, steps: addEmojis(data.steps || []) }
+}
+
+/** Website-analyse met SSE: onStep per stap, daarna { response, steps }. */
+export async function analyzeWebsiteStream(
+  url: string,
+  customPrompt: string | undefined,
+  onStep: (step: ThinkingStep) => void
+): Promise<{ response: string; steps: ThinkingStep[] }> {
+  const res = await fetch(`${API_BASE}/analyze/website/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url,
+      ...(customPrompt?.trim() ? { custom_prompt: customPrompt.trim() } : {}),
+    }),
+  })
+  if (!res.ok) throw new Error("Website analysis stream failed")
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No response body")
+  const steps: ThinkingStep[] = []
+  const wrapped = (s: ThinkingStep) => {
+    steps.push(s)
+    onStep(s)
+  }
+  const { response } = await parseSSEStream(reader, wrapped)
+  return { response, steps }
 }
 
 // ─── Competitors ─────────────────────────────────────────────────────────────
@@ -138,6 +313,32 @@ export async function analyzeCompetitors(
   if (!res.ok) throw new Error("Competitor analysis failed")
   const data = await res.json()
   return { response: data.response, steps: addEmojis(data.steps || []) }
+}
+
+/** Concurrenten-analyse met SSE: onStep per stap, daarna { response, steps }. */
+export async function analyzeCompetitorsStream(
+  names: string[],
+  customPrompt: string | undefined,
+  onStep: (step: ThinkingStep) => void
+): Promise<{ response: string; steps: ThinkingStep[] }> {
+  const res = await fetch(`${API_BASE}/analyze/competitors/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      competitor_names: names,
+      custom_prompt: customPrompt || null,
+    }),
+  })
+  if (!res.ok) throw new Error("Competitor analysis stream failed")
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No response body")
+  const steps: ThinkingStep[] = []
+  const wrapped = (s: ThinkingStep) => {
+    steps.push(s)
+    onStep(s)
+  }
+  const { response } = await parseSSEStream(reader, wrapped)
+  return { response, steps }
 }
 
 // ─── Agenda ──────────────────────────────────────────────────────────────────
@@ -354,4 +555,32 @@ export async function generateNewsContent(
   if (!res.ok) throw new Error("Failed to generate news content")
   const data = await res.json()
   return data.content ?? ""
+}
+
+/** Nieuws genereren met SSE: onStep per stap, daarna { content }. */
+export async function generateNewsContentStream(
+  newsItem: import("./types").NewsItem,
+  task: NewsGenerateTask,
+  customPrompt: string | undefined,
+  onStep: (step: ThinkingStep) => void
+): Promise<{ content: string; steps: ThinkingStep[] }> {
+  const res = await fetch(`${API_BASE}/news/generate/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      news_item: newsItem,
+      task,
+      custom_prompt: task === "custom" ? (customPrompt ?? "") : undefined,
+    }),
+  })
+  if (!res.ok) throw new Error("News generate stream failed")
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No response body")
+  const steps: ThinkingStep[] = []
+  const wrapped = (s: ThinkingStep) => {
+    steps.push(s)
+    onStep(s)
+  }
+  const { response } = await parseSSEStream(reader, wrapped)
+  return { content: response ?? "", steps }
 }

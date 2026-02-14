@@ -131,7 +131,7 @@ export function KennisScreen() {
           <div>
             <h1 className="text-xl font-semibold text-foreground">Kennis</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Voeg hier teksten toe die Sonja kan gebruiken als kennis, zodat ze meer context heeft in het gesprek.
+              Voeg hier teksten toe die Sonja kan gebruiken als kennis, zodat ze meer context heeft in het gesprek. Tip: geef bestanden een naam die goed aansluit op de inhoud — dan vindt Sonja precies wat ze nodig heeft.
             </p>
           </div>
           <div className="flex items-center gap-2">

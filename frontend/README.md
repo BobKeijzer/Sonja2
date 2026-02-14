@@ -40,7 +40,7 @@ pnpm start
 
 | Scherm         | Beschrijving |
 | -------------- | ------------ |
-| Chat           | Gesprek met Sonja, suggestiekaarten, denkstappen; tijdens wachten afwisselend “denken”/“regelen”, na antwoord blij → na 3s koffie |
+| Chat           | Gesprek met Sonja, suggestiekaarten, Sonja’s stappen (standaard open); tijdens wachten alleen denken-avatar en langzaam wisselende teksten, na antwoord blij → na 3s koffie |
 | Agenda         | Taken (eenmalig/terugkerend), aanmaken/bewerken/verwijderen |
 | Vergaderingen  | Transcript upload, actiepunten/leerpunten; tijdens analyse denken/regelen, daarna blij/koffie |
 | Website        | URL-invoer, analyse; zelfde avatar-flow bij laden/resultaat |
@@ -49,12 +49,12 @@ pnpm start
 | Kennis         | Documenten in knowledge/: upload, nieuw, openen, bewerken, verwijderen |
 | Geheugen       | Herinneringen in memory/: lijst, openen, bewerken, verwijderen (alleen Sonja maakt nieuwe aan) |
 | Sonja’s CV     | Profiel en vaardigheden |
-| Instellingen   | o.a. donkere modus, denkstappen, suggestiekaarten |
+| Instellingen   | o.a. donkere modus, stappen standaard open, suggestiekaarten |
 
 ## Componenten
 
 - **SonjaAvatar** – Mood-avatars (blij, koffie, denken, regelen, boos, verdrietig) met vaste framing; gebruikt in sidebar, chat, CV en bij laden/resultaat op vergaderingen, website, concurrenten en nieuws.
-- **ThinkingSteps** – Weergave van tool-aanroepen (denkstappen) bij chat en analyses.
+- **ThinkingSteps** – Weergave van tool-aanroepen (Sonja’s stappen), standaard open, bij chat en analyses.
 
 ## Env
 

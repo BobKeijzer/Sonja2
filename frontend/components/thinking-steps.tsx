@@ -11,7 +11,7 @@ interface ThinkingStepsProps {
 
 export function ThinkingSteps({
   steps,
-  defaultOpen = false,
+  defaultOpen = true,
 }: ThinkingStepsProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
 
@@ -25,7 +25,7 @@ export function ThinkingSteps({
         className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <Search className="h-3 w-3" />
-        <span>Sonja denkstappen</span>
+        <span>Sonja&apos;s stappen</span>
         {isOpen ? (
           <ChevronDown className="h-3 w-3" />
         ) : (

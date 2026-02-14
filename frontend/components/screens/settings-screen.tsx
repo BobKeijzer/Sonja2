@@ -133,10 +133,10 @@ export function SettingsScreen() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-card-foreground">
-                    Denkstappen standaard open
+                    Stappen standaard open
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Toon de denkstappen automatisch bij elk antwoord
+                    Toon Sonja&apos;s stappen automatisch bij elk antwoord
                   </p>
                 </div>
                 <Switch

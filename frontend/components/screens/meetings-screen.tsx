@@ -18,7 +18,7 @@ import { SonjaAvatar } from "@/components/sonja-avatar"
 import { ThinkingSteps } from "@/components/thinking-steps"
 import { MarkdownContent } from "@/components/markdown-content"
 import type { ThinkingStep } from "@/lib/types"
-import { extractMeeting } from "@/lib/api"
+import { extractMeetingStream } from "@/lib/api"
 
 const STORAGE_KEY = "sonja-meetings-prompt"
 
@@ -40,6 +40,7 @@ export function MeetingsScreen() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [steps, setSteps] = useState<ThinkingStep[]>([])
+  const [pendingSteps, setPendingSteps] = useState<ThinkingStep[]>([])
   const [showPromptEdit, setShowPromptEdit] = useState(false)
   const [prompt, setPrompt] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -72,7 +73,7 @@ export function MeetingsScreen() {
     }
     loadingIntervalRef.current = setInterval(() => {
       setLoadingPhase((p) => (p === "denken" ? "regelen" : "denken"))
-    }, 2000)
+    }, 5000)
     return () => {
       if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
     }
@@ -108,14 +109,20 @@ export function MeetingsScreen() {
     setIsAnalyzing(true)
     setResult(null)
     setSteps([])
+    setPendingSteps([])
 
     try {
-      const data = await extractMeeting(transcript, prompt.trim() || undefined)
+      const data = await extractMeetingStream(
+        transcript,
+        prompt.trim() || undefined,
+        (step) => setPendingSteps((prev) => [...prev, step])
+      )
       setSteps(data.steps)
       setResult(data.response)
     } catch {
       setResult("Er ging iets mis bij het analyseren van het transcript. Probeer het opnieuw.")
     } finally {
+      setPendingSteps([])
       setIsAnalyzing(false)
     }
   }
@@ -248,15 +255,20 @@ export function MeetingsScreen() {
         {/* Results */}
         {isAnalyzing && (
           <Card>
-            <CardContent className="flex items-center justify-center py-16">
+            <CardContent className="flex flex-col items-center py-16">
               <div className="flex flex-col items-center gap-3">
-                <SonjaAvatar mood={loadingPhase} size="lg" alt="Sonja" />
+                <SonjaAvatar mood="denken" size="lg" alt="Sonja" />
                 <p className="text-sm text-muted-foreground">
                   {loadingPhase === "denken"
                     ? "Sonja is aan het nadenken..."
                     : "Sonja is aan het regelen..."}
                 </p>
               </div>
+              {pendingSteps.length > 0 && (
+                <div className="mt-4 w-full max-w-xl">
+                  <ThinkingSteps steps={pendingSteps} defaultOpen />
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -265,9 +277,9 @@ export function MeetingsScreen() {
           <>
             <div className="mb-3 flex items-center gap-2">
               <SonjaAvatar mood={resultAvatar} size="sm" alt="Sonja" />
-              <span className="text-sm text-muted-foreground">
-                {resultAvatar === "blij" ? "Klaar!" : "Tot de volgende keer."}
-              </span>
+              {resultAvatar === "blij" && (
+                <span className="text-sm text-muted-foreground">Klaar!</span>
+              )}
             </div>
             <Card>
             <CardHeader className="pb-2">

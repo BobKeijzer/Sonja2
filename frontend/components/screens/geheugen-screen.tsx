@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Brain, Pencil, Trash2, Loader2, X } from "lucide-react"
+import { Brain, Pencil, Trash2, Loader2, X, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -21,7 +21,9 @@ import {
   deleteMemoryFile,
 } from "@/lib/api"
 
-export function GeheugenScreen() {
+type GeheugenScreenProps = { isActive?: boolean }
+
+export function GeheugenScreen({ isActive }: GeheugenScreenProps) {
   const [files, setFiles] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [openFilename, setOpenFilename] = useState<string | null>(null)
@@ -30,6 +32,7 @@ export function GeheugenScreen() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const loadFiles = () => {
+    setLoading(true)
     getMemoryFiles()
       .then(setFiles)
       .catch(() => {})
@@ -39,6 +42,11 @@ export function GeheugenScreen() {
   useEffect(() => {
     loadFiles()
   }, [])
+
+  // Vernieuw lijst wanneer dit scherm weer zichtbaar wordt (bijv. na write_to_memory in chat)
+  useEffect(() => {
+    if (isActive) loadFiles()
+  }, [isActive])
 
   useEffect(() => {
     if (!openFilename) {
@@ -85,11 +93,23 @@ export function GeheugenScreen() {
   return (
     <div className="h-full overflow-y-auto px-6 py-6">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-foreground">Geheugen</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Sonja slaat op basis van jullie interacties herinneringen op en groeit zo met je mee.
-          </p>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Geheugen</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Sonja slaat op basis van jullie interacties herinneringen op en groeit zo met je mee.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-2"
+            onClick={() => loadFiles()}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Vernieuwen
+          </Button>
         </div>
 
         <Card>

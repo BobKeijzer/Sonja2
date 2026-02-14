@@ -3,6 +3,7 @@ FastAPI app voor Sonja – chat, agenda en scheduler.
 Start met: uv run uvicorn main:app --reload (vanuit backend/) of met API_PORT uit .env.
 """
 
+import asyncio
 import json
 import re
 import threading
@@ -13,6 +14,7 @@ from pathlib import Path
 import feedparser
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from agenda import (
@@ -79,6 +81,60 @@ async def chat(request: ChatRequest):
     return _to_chat_response(response, steps)
 
 
+async def _chat_stream_generator(message: str, context: str):
+    """Yield SSE events: event step voor elke stap, daarna event done met response."""
+    sonja = get_sonja()
+    steps_list: list[dict] = []
+    task = asyncio.create_task(
+        sonja.chat_async_with_list(message, context, steps_list)
+    )
+    sent_count = 0
+    while not task.done():
+        await asyncio.sleep(0.2)
+        while sent_count < len(steps_list):
+            step = steps_list[sent_count]
+            yield f"event: step\ndata: {json.dumps(step)}\n\n"
+            sent_count += 1
+    response = await task
+    yield f"event: done\ndata: {json.dumps({'response': response})}\n\n"
+
+
+async def _stream_prompt_generator(prompt: str):
+    """Yield SSE events voor een willekeurige Sonja-prompt (geen chat-context)."""
+    sonja = get_sonja()
+    steps_list: list[dict] = []
+    task = asyncio.create_task(
+        sonja.chat_async_with_list(prompt, "", steps_list)
+    )
+    sent_count = 0
+    while not task.done():
+        await asyncio.sleep(0.2)
+        while sent_count < len(steps_list):
+            step = steps_list[sent_count]
+            yield f"event: step\ndata: {json.dumps(step)}\n\n"
+            sent_count += 1
+    response = await task
+    yield f"event: done\ndata: {json.dumps({'response': response})}\n\n"
+
+
+def _sse_headers():
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Chat met Server-Sent Events: stappen komen binnen terwijl Sonja werkt, daarna het antwoord."""
+    return StreamingResponse(
+        _chat_stream_generator(request.message, context=request.context or ""),
+        media_type="text/event-stream",
+        headers=_sse_headers(),
+    )
+
+
 # --- Vergaderingen: extract actiepunten + opslaan in geheugen ---
 
 class MeetingsExtractRequest(BaseModel):
@@ -86,20 +142,35 @@ class MeetingsExtractRequest(BaseModel):
     custom_prompt: str | None = Field(default=None, description="Optioneel: eigen prompt voor de extractie.")
 
 
+def _meetings_prompt(transcript: str, custom_prompt: str | None) -> str:
+    if custom_prompt and custom_prompt.strip():
+        return custom_prompt.strip() + "\n\nTranscript:\n" + transcript
+    return (
+        "Uit onderstaand vergadertranscript: haal actiepunten, to-do's en leerpunten/kennis. "
+        "Sla de leerpunten en relevante kennis op met write_to_memory. "
+        "Roep write_to_memory zo min mogelijk aan: bundel alle leerpunten in één (of heel weinig) dense entry/entries — liever één aanroep met alles samengevat dan veel losse aanroepen. "
+        "Geef daarna een kort overzicht van wat je hebt opgeslagen en de actiepunten.\n\n"
+        "Transcript:\n" + transcript
+    )
+
+
+@app.post("/meetings/extract/stream")
+async def meetings_extract_stream(request: MeetingsExtractRequest):
+    """Vergadering extract met SSE: stappen dynamisch, daarna antwoord."""
+    transcript = request.transcript or ""
+    prompt = _meetings_prompt(transcript, request.custom_prompt)
+    return StreamingResponse(
+        _stream_prompt_generator(prompt),
+        media_type="text/event-stream",
+        headers=_sse_headers(),
+    )
+
+
 @app.post("/meetings/extract", response_model=ChatResponse)
 async def meetings_extract(request: MeetingsExtractRequest):
     """Haal actiepunten, to-do's en kennis uit een transcript; leerpunten worden opgeslagen als herinnering in memory/."""
     transcript = request.transcript or ""
-    if request.custom_prompt and request.custom_prompt.strip():
-        prompt = request.custom_prompt.strip() + "\n\nTranscript:\n" + transcript
-    else:
-        prompt = (
-            "Uit onderstaand vergadertranscript: haal actiepunten, to-do's en leerpunten/kennis. "
-            "Sla de leerpunten en relevante kennis op met write_to_memory. "
-            "Roep write_to_memory zo min mogelijk aan: bundel alle leerpunten in één (of heel weinig) dense entry/entries — liever één aanroep met alles samengevat dan veel losse aanroepen. "
-            "Geef daarna een kort overzicht van wat je hebt opgeslagen en de actiepunten.\n\n"
-            "Transcript:\n" + transcript
-        )
+    prompt = _meetings_prompt(transcript, request.custom_prompt)
     sonja = get_sonja()
     response, steps = await sonja.chat_async(prompt, context="")
     return _to_chat_response(response, steps)
@@ -112,19 +183,36 @@ class AnalyzeWebsiteRequest(BaseModel):
     custom_prompt: str | None = Field(default=None, description="Optioneel: eigen prompt voor de analyse.")
 
 
+def _website_prompt(url: str, custom_prompt: str | None) -> str:
+    if custom_prompt and custom_prompt.strip():
+        return custom_prompt.strip() + "\n\nURL: " + url
+    return (
+        "Scrape de volgende URL met de scrape_website tool en analyseer de pagina op: "
+        "SEO, contentkwaliteit, tone of voice en call-to-actions. Geef een bondige analyse in het Nederlands.\n\nURL: " + url
+    )
+
+
+@app.post("/analyze/website/stream")
+async def analyze_website_stream(request: AnalyzeWebsiteRequest):
+    """Website-analyse met SSE: stappen dynamisch, daarna antwoord."""
+    url = (request.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is verplicht.")
+    prompt = _website_prompt(url, request.custom_prompt)
+    return StreamingResponse(
+        _stream_prompt_generator(prompt),
+        media_type="text/event-stream",
+        headers=_sse_headers(),
+    )
+
+
 @app.post("/analyze/website", response_model=ChatResponse)
 async def analyze_website(request: AnalyzeWebsiteRequest):
     """Scrape de URL en laat Sonja analyseren op SEO, content, tone of voice en CTA."""
     url = (request.url or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is verplicht.")
-    if request.custom_prompt and request.custom_prompt.strip():
-        prompt = request.custom_prompt.strip() + "\n\nURL: " + url
-    else:
-        prompt = (
-            "Scrape de volgende URL met de scrape_website tool en analyseer de pagina op: "
-            "SEO, contentkwaliteit, tone of voice en call-to-actions. Geef een bondige analyse in het Nederlands.\n\nURL: " + url
-        )
+    prompt = _website_prompt(url, request.custom_prompt)
     sonja = get_sonja()
     response, steps = await sonja.chat_async(prompt, context="")
     return _to_chat_response(response, steps)
@@ -137,26 +225,41 @@ class AnalyzeCompetitorsRequest(BaseModel):
     custom_prompt: str | None = Field(default=None, description="Optioneel: eigen prompt voor de analyse.")
 
 
+def _competitors_prompt(names: list[str], custom_prompt: str | None) -> str:
+    if custom_prompt and custom_prompt.strip():
+        return custom_prompt.strip() + f"\n\nConcurrenten: {', '.join(names)}"
+    return (
+        f"Gebruik de spy_competitor_research tool voor elk van de volgende concurrenten: {', '.join(names)}.\n\n"
+        "Voor elke concurrent:\n"
+        "- Roep spy_competitor_research aan met de naam van de concurrent\n"
+        "- Sla de belangrijkste bevindingen op\n\n"
+        "Geef daarna per concurrent een samenvatting (recente ontwikkelingen, sterke punten, marktpositie) "
+        "en sluit af met concrete actiepunten voor AFAS marketing op basis van de gecombineerde analyse."
+        "Extra instructie/Focus op: Algemeen"
+    )
+
+
+@app.post("/analyze/competitors/stream")
+async def analyze_competitors_stream(request: AnalyzeCompetitorsRequest):
+    """Concurrenten-analyse met SSE: stappen dynamisch, daarna antwoord."""
+    names = [n.strip() for n in (request.competitor_names or []) if n.strip()]
+    if not names:
+        raise HTTPException(status_code=400, detail="Minimaal één concurrent opgeven.")
+    prompt = _competitors_prompt(names, request.custom_prompt)
+    return StreamingResponse(
+        _stream_prompt_generator(prompt),
+        media_type="text/event-stream",
+        headers=_sse_headers(),
+    )
+
+
 @app.post("/analyze/competitors", response_model=ChatResponse)
 async def analyze_competitors(request: AnalyzeCompetitorsRequest):
     """Laat Sonja per opgegeven concurrent spy_competitor_research uitvoeren en geef een gecombineerd overzicht."""
     names = [n.strip() for n in (request.competitor_names or []) if n.strip()]
     if not names:
         raise HTTPException(status_code=400, detail="Minimaal één concurrent opgeven.")
-    
-    if request.custom_prompt and request.custom_prompt.strip():
-        # Gebruik de custom prompt (concurrenten-namen worden nog toegevoegd voor duidelijkheid)
-        prompt = request.custom_prompt.strip() + f"\n\nConcurrenten: {', '.join(names)}"
-    else:
-        # Standaard prompt: expliciet en direct
-        prompt = (
-            f"Gebruik de spy_competitor_research tool voor elk van de volgende concurrenten: {', '.join(names)}.\n\n"
-            "Voor elke concurrent:\n"
-            "- Roep spy_competitor_research aan met de naam van de concurrent\n"
-            "- Sla de belangrijkste bevindingen op\n\n"
-            "Geef daarna per concurrent een samenvatting (recente ontwikkelingen, sterke punten, marktpositie) "
-            "en sluit af met concrete actiepunten voor AFAS marketing op basis van de gecombineerde analyse."
-        )
+    prompt = _competitors_prompt(names, request.custom_prompt)
     sonja = get_sonja()
     response, steps = await sonja.chat_async(prompt, context="")
     return _to_chat_response(response, steps)
@@ -463,8 +566,8 @@ class NewsGenerateResponse(BaseModel):
     content: str = Field(description="Door Sonja gegenereerde tekst.")
 
 
-@app.post("/news/generate", response_model=NewsGenerateResponse)
-async def news_generate(body: NewsGenerateRequest):
+def _news_generate_prompt(body: NewsGenerateRequest) -> str:
+    """Bouw de prompt voor nieuws-generatie (gedeeld door generate en generate/stream)."""
     item = body.news_item or {}
     title = (item.get("title") or "").strip()
     url = (item.get("url") or "").strip()
@@ -472,26 +575,15 @@ async def news_generate(body: NewsGenerateRequest):
     source = (item.get("source") or "").strip()
     task = (body.task or "").strip().lower()
     custom = (body.custom_prompt or "").strip()
-
-    if not title and not url:
-        raise HTTPException(status_code=400, detail="news_item moet ten minste title of url bevatten.")
-
-    if task == "custom" and not custom:
-        raise HTTPException(status_code=400, detail="Bij task 'custom' is custom_prompt verplicht.")
-
     prompts = _load_news_prompts()
     if task in prompts:
         instruction = prompts[task]
     elif task == "custom":
         instruction = custom
     else:
-        raise HTTPException(
-            status_code=400,
-            detail="task moet zijn: inhaker, linkedin, afas_betekenis of custom.",
-        )
-
+        instruction = ""
     context = f"Nieuwsitem:\nTitel: {title}\nBron: {source}\nSamenvatting: {summary}\nURL: {url}"
-    prompt = (
+    return (
         f"{context}\n\n"
         "De gebruiker vraagt het volgende:\n"
         f"{instruction}\n\n"
@@ -501,6 +593,48 @@ async def news_generate(body: NewsGenerateRequest):
         "Geef alleen de gevraagde tekst terug in markdown waar passend, geen uitleg ervoor."
     )
 
+
+@app.post("/news/generate/stream")
+async def news_generate_stream(body: NewsGenerateRequest):
+    """Nieuws genereren met SSE: stappen dynamisch, daarna content in event done."""
+    item = body.news_item or {}
+    if not (item.get("title") or "").strip() and not (item.get("url") or "").strip():
+        raise HTTPException(status_code=400, detail="news_item moet ten minste title of url bevatten.")
+    task = (body.task or "").strip().lower()
+    if task == "custom" and not (body.custom_prompt or "").strip():
+        raise HTTPException(status_code=400, detail="Bij task 'custom' is custom_prompt verplicht.")
+    prompts = _load_news_prompts()
+    if task not in prompts and task != "custom":
+        raise HTTPException(
+            status_code=400,
+            detail="task moet zijn: inhaker, linkedin, afas_betekenis of custom.",
+        )
+    prompt = _news_generate_prompt(body)
+    return StreamingResponse(
+        _stream_prompt_generator(prompt),
+        media_type="text/event-stream",
+        headers=_sse_headers(),
+    )
+
+
+@app.post("/news/generate", response_model=NewsGenerateResponse)
+async def news_generate(body: NewsGenerateRequest):
+    item = body.news_item or {}
+    title = (item.get("title") or "").strip()
+    url = (item.get("url") or "").strip()
+    task = (body.task or "").strip().lower()
+    custom = (body.custom_prompt or "").strip()
+    if not title and not url:
+        raise HTTPException(status_code=400, detail="news_item moet ten minste title of url bevatten.")
+    if task == "custom" and not custom:
+        raise HTTPException(status_code=400, detail="Bij task 'custom' is custom_prompt verplicht.")
+    prompts = _load_news_prompts()
+    if task not in prompts and task != "custom":
+        raise HTTPException(
+            status_code=400,
+            detail="task moet zijn: inhaker, linkedin, afas_betekenis of custom.",
+        )
+    prompt = _news_generate_prompt(body)
     sonja = get_sonja()
     response, _ = await sonja.chat_async(prompt, context="")
     return NewsGenerateResponse(content=(response or "").strip())

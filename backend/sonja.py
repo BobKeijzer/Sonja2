@@ -63,7 +63,7 @@ def _make_recording_tool(inner_tool: Any, steps_ctx: ContextVar) -> BaseTool:
         def _run(self, **kwargs: Any) -> str:
             steps = ctx.get()
             if isinstance(steps, list):
-                summary = ", ".join(f"{k}={str(v)[:60]}" for k, v in kwargs.items())[:200]
+                summary = ", ".join(f"{k}={str(v)}" for k, v in kwargs.items())
                 steps.append({"tool": tool_name, "summary": summary or None})
             return inner._run(**kwargs)
 
@@ -202,6 +202,18 @@ class SonjaAssistant:
             result = await self.agent.kickoff_async(messages=prompt)
             response = result.raw if hasattr(result, "raw") else str(result)
             return response, list(steps_list)
+        finally:
+            self._steps_ctx.reset(token)
+
+    async def chat_async_with_list(
+        self, message: str, context: str, steps_list: list[dict]
+    ) -> str:
+        """Zelfde als chat_async maar gebruikt de gegeven steps_list (voor streaming: caller kan stappen uitlezen terwijl de agent draait). Retourneert alleen het antwoord."""
+        token = self._steps_ctx.set(steps_list)
+        try:
+            prompt = _build_prompt(message, context)
+            result = await self.agent.kickoff_async(messages=prompt)
+            return result.raw if hasattr(result, "raw") else str(result)
         finally:
             self._steps_ctx.reset(token)
 

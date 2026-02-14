@@ -21,7 +21,7 @@ import {
   getCompetitors,
   addCompetitor as apiAddCompetitor,
   deleteCompetitor as apiDeleteCompetitor,
-  analyzeCompetitors,
+  analyzeCompetitorsStream,
 } from "@/lib/api"
 
 const STORAGE_KEY = "sonja-competitors-prompt"
@@ -32,7 +32,8 @@ Voor elke concurrent:
 - Roep spy_competitor_research aan met de naam van de concurrent
 - Sla de belangrijkste bevindingen op
 
-Geef daarna per concurrent een samenvatting (recente ontwikkelingen, sterke punten, marktpositie) en sluit af met concrete actiepunten voor AFAS marketing op basis van de gecombineerde analyse.`
+Geef daarna per concurrent een samenvatting (recente ontwikkelingen, sterke punten, marktpositie) en sluit af met concrete actiepunten voor AFAS marketing op basis van de gecombineerde analyse.
+Extra instructie/Focus op: Algemeen`
 
 function getStoredPrompt(): string {
   if (typeof window === "undefined") return DEFAULT_PROMPT
@@ -52,6 +53,7 @@ export function CompetitorsScreen() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<string | null>(null)
   const [steps, setSteps] = useState<ThinkingStep[]>([])
+  const [pendingSteps, setPendingSteps] = useState<ThinkingStep[]>([])
   const [loading, setLoading] = useState(true)
   const [showPromptEdit, setShowPromptEdit] = useState(false)
   const [prompt, setPrompt] = useState("")
@@ -90,7 +92,7 @@ export function CompetitorsScreen() {
     }
     loadingIntervalRef.current = setInterval(() => {
       setLoadingPhase((p) => (p === "denken" ? "regelen" : "denken"))
-    }, 2000)
+    }, 5000)
     return () => {
       if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current)
     }
@@ -146,18 +148,24 @@ export function CompetitorsScreen() {
     setIsAnalyzing(true)
     setAnalysisResult(null)
     setSteps([])
+    setPendingSteps([])
 
     const selectedNames = competitors
       .filter((c) => selected.has(c.id))
       .map((c) => c.name)
 
     try {
-      const data = await analyzeCompetitors(selectedNames, prompt.trim() || undefined)
+      const data = await analyzeCompetitorsStream(
+        selectedNames,
+        prompt.trim() || undefined,
+        (step) => setPendingSteps((prev) => [...prev, step])
+      )
       setSteps(data.steps)
       setAnalysisResult(data.response)
     } catch {
       setAnalysisResult("Er ging iets mis bij de analyse. Probeer het opnieuw.")
     } finally {
+      setPendingSteps([])
       setIsAnalyzing(false)
     }
   }
@@ -335,13 +343,18 @@ export function CompetitorsScreen() {
         {/* Loading */}
         {isAnalyzing && (
           <Card className="mt-6">
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <SonjaAvatar mood={loadingPhase} size="lg" alt="Sonja" />
+            <CardContent className="flex flex-col items-center py-16">
+              <SonjaAvatar mood="denken" size="lg" alt="Sonja" />
               <p className="mt-3 text-sm text-muted-foreground">
                 {loadingPhase === "denken"
                   ? "Sonja is aan het nadenken..."
                   : "Sonja is aan het regelen..."}
               </p>
+              {pendingSteps.length > 0 && (
+                <div className="mt-4 w-full max-w-xl">
+                  <ThinkingSteps steps={pendingSteps} defaultOpen />
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -351,9 +364,9 @@ export function CompetitorsScreen() {
           <>
             <div className="mt-6 mb-3 flex items-center gap-2">
               <SonjaAvatar mood={resultAvatar} size="sm" alt="Sonja" />
-              <span className="text-sm text-muted-foreground">
-                {resultAvatar === "blij" ? "Klaar!" : "Tot de volgende keer."}
-              </span>
+              {resultAvatar === "blij" && (
+                <span className="text-sm text-muted-foreground">Klaar!</span>
+              )}
             </div>
             <Card className="mt-0">
             <CardContent className="p-5">

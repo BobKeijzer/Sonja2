@@ -19,6 +19,8 @@ build/
 # Backend data (agenda, RAG vector store lokaal)
 backend/data/
 backend/chroma_db/
+backend/knowledge/
+backend/memory/
 
 # IDE
 .idea/
