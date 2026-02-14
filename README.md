@@ -16,6 +16,7 @@ AI-gestuurde marketingassistent voor AFAS Software: CrewAI (Claude) als backend,
 
 ## Functionaliteiten
 
+- **Dynamische stappenlijst (Sonja SSE)** – Denkstappen (tool-aanroepen) streamen real-time binnen op chat, vergaderingen, website, concurrenten en nieuws.
 - **Chat** – Gesprekken met Sonja, chatgeschiedenis, denkstappen (tools) en dynamische avatars (denken/regelen tijdens wachten, blij → koffie na antwoord)
 - **Agenda** – Taken en afspraken (eenmalig en terugkerend, cron), e-mail bij afgeronde taken
 - **Vergaderingen** – Transcripties analyseren, actiepunten en leerpunten; herinneringen in `memory/`
