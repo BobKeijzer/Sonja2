@@ -1,6 +1,7 @@
 export interface ThinkingStep {
   tool: string
   summary: string | null
+  display_label?: string | null
   emoji?: string
 }
 

@@ -47,6 +47,66 @@ from tools import (
 )
 
 
+_MAX_DISPLAY_LEN = 56  # lengte voor afkappen van waarden in display_label
+
+
+def _trunc(s: str, max_len: int = _MAX_DISPLAY_LEN) -> str:
+    s = (s or "").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3].rstrip() + "..."
+
+
+def _step_display_label(tool_name: str, kwargs: dict[str, Any]) -> str:
+    """Maak een Nederlandstalige, gebruiksvriendelijke zin voor één denkstap."""
+    k = kwargs
+    get = lambda key: _trunc(str(k.get(key, "")))
+    if tool_name == "Search the internet with Serper":
+        q = get("search_query")
+        return f"Op het internet zoeken naar: {q}" if q else "Op het internet zoeken."
+    if tool_name == "Read website content":
+        url = get("url") or get("link")
+        return f"Pagina-inhoud ophalen van: {url}" if url else "Website-inhoud ophalen."
+    if tool_name == "read_file":
+        path = get("file_path")
+        if path:
+            return f"Lezen van kennis of herinnering: {path}"
+        return "Bestand uit kennis of geheugen lezen."
+    if tool_name == "rag_search":
+        q = get("query")
+        return f"Doorzoeken van kennis en geheugen voor: {q}" if q else "Doorzoeken van kennis en geheugen."
+    if tool_name == "write_to_memory":
+        title = get("title")
+        return f"Herinnering opslaan: {title}" if title else "Herinnering opslaan."
+    if tool_name == "spy_competitor_research":
+        name = get("competitor_name")
+        return f"Concurrentie-onderzoek doen voor: {name}" if name else "Concurrentie-onderzoek."
+    if tool_name == "send_email":
+        subj = get("subject")
+        to = k.get("to")
+        to_str = ", ".join(to[:2]) if isinstance(to, list) and to else get("to")
+        if subj:
+            return f"E-mail versturen over «{subj}» naar {_trunc(to_str, 30)}"
+        return "E-mail versturen."
+    if tool_name == "add_agenda_item":
+        title = get("title")
+        return f"Agenda-item toevoegen: {title}" if title else "Agenda-item toevoegen."
+    if tool_name == "list_agenda_items":
+        q = get("optional_query")
+        return "Agenda doorzoeken." if q else "Agenda bekijken."
+    if tool_name == "update_agenda_item":
+        iid = get("item_id")
+        return f"Agenda-item bijwerken: {iid}" if iid else "Agenda-item bijwerken."
+    if tool_name == "delete_agenda_item":
+        iid = get("item_id")
+        return f"Agenda-item verwijderen: {iid}" if iid else "Agenda-item verwijderen."
+    for key, val in kwargs.items():
+        v = _trunc(str(val))
+        if v:
+            return f"{tool_name}: {v}"
+    return tool_name
+
+
 def _make_recording_tool(inner_tool: Any, steps_ctx: ContextVar) -> BaseTool:
     """Wrap any tool (crewai BaseTool of crewai_tools) zodat elke _run in steps_ctx wordt gelogd."""
     inner = inner_tool
@@ -64,7 +124,12 @@ def _make_recording_tool(inner_tool: Any, steps_ctx: ContextVar) -> BaseTool:
             steps = ctx.get()
             if isinstance(steps, list):
                 summary = ", ".join(f"{k}={str(v)}" for k, v in kwargs.items())
-                steps.append({"tool": tool_name, "summary": summary or None})
+                display_label = _step_display_label(tool_name, kwargs)
+                steps.append({
+                    "tool": tool_name,
+                    "summary": summary or None,
+                    "display_label": display_label,
+                })
             return inner._run(**kwargs)
 
     return RecordingTool()

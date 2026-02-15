@@ -59,6 +59,7 @@ class ChatRequest(BaseModel):
 class StepItem(BaseModel):
     tool: str
     summary: str | None = None
+    display_label: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -69,7 +70,10 @@ class ChatResponse(BaseModel):
 def _to_chat_response(response: str, steps: list) -> ChatResponse:
     return ChatResponse(
         response=response,
-        steps=[StepItem(tool=s["tool"], summary=s.get("summary")) for s in steps],
+        steps=[
+            StepItem(tool=s["tool"], summary=s.get("summary"), display_label=s.get("display_label"))
+            for s in steps
+        ],
     )
 
 

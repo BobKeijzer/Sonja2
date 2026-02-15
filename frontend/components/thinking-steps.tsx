@@ -43,11 +43,9 @@ export function ThinkingSteps({
               className="flex items-start gap-2 text-xs text-muted-foreground"
             >
               <span className="shrink-0 pt-px">{step.emoji}</span>
-              <span>
-                <span className="font-medium text-foreground/80">
-                  {step.tool}
-                </span>{" "}
-                - {step.summary}
+              <span className="font-medium text-foreground/80">
+                {step.display_label ??
+                  (step.summary ? `${step.tool} – ${step.summary}` : step.tool)}
               </span>
             </div>
           ))}

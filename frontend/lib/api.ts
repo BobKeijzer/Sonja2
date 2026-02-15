@@ -85,6 +85,7 @@ export async function sendChatMessageStream(
             const step: ThinkingStep = {
               tool: data.tool ?? "",
               summary: data.summary ?? null,
+              display_label: data.display_label ?? null,
             }
             const withEmoji = addEmojis([step])[0]
             steps.push(withEmoji)
@@ -141,7 +142,11 @@ async function parseSSEStream(
         try {
           const data = JSON.parse(currentData)
           if (currentEvent === "step") {
-            const step: ThinkingStep = { tool: data.tool ?? "", summary: data.summary ?? null }
+            const step: ThinkingStep = {
+              tool: data.tool ?? "",
+              summary: data.summary ?? null,
+              display_label: data.display_label ?? null,
+            }
             const withEmoji = addEmojis([step])[0]
             onStep(withEmoji)
           } else if (currentEvent === "done" && data.response !== undefined) {
