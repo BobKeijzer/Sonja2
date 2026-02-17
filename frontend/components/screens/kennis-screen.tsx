@@ -211,78 +211,86 @@ export function KennisScreen() {
                 </p>
               </div>
             ) : (
-              <ul className="divide-y divide-border">
+              <ul>
                 {files.map((filename) => (
                   <li
                     key={filename}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-muted/30"
+                    className="border-b border-border last:border-b-0"
                   >
-                    <button
-                      type="button"
-                      className="flex flex-1 items-center gap-3 text-left"
-                      onClick={() => setOpenFilename(filename)}
-                    >
-                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm font-medium text-foreground truncate">
-                        {filename}
-                      </span>
-                    </button>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setOpenFilename(filename)}
-                        title="Bewerken"
+                    <div className="flex items-center justify-between px-4 py-3 hover:bg-muted/30">
+                      <button
+                        type="button"
+                        className="flex flex-1 items-center gap-3 text-left"
+                        onClick={() =>
+                          setOpenFilename(openFilename === filename ? null : filename)
+                        }
                       >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => setDeleteTarget(filename)}
-                        title="Verwijderen"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground truncate">
+                          {filename}
+                        </span>
+                      </button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() =>
+                            setOpenFilename(openFilename === filename ? null : filename)
+                          }
+                          title="Bewerken"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          onClick={() => setDeleteTarget(filename)}
+                          title="Verwijderen"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
+                    {openFilename === filename && (
+                      <div className="border-t border-border bg-muted/20 px-4 py-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {filename}
+                          </span>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={handleSave} disabled={saving}>
+                              {saving ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                "Opslaan"
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => setOpenFilename(null)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        <textarea
+                          value={content}
+                          onChange={(e) => setContent(e.target.value)}
+                          rows={12}
+                          className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono"
+                        />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
           </CardContent>
         </Card>
-
-        {/* Editor panel */}
-        {openFilename != null && (
-          <Card className="mt-6">
-            <CardContent className="p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-sm font-medium text-foreground">{openFilename}</span>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleSave} disabled={saving}>
-                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Opslaan"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => setOpenFilename(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={14}
-                className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono"
-              />
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
@@ -290,7 +298,7 @@ export function KennisScreen() {
           <AlertDialogHeader>
             <AlertDialogTitle>Bestand verwijderen?</AlertDialogTitle>
             <AlertDialogDescription>
-              Weet je zeker dat je &quot;{deleteTarget}&quot; wilt verwijderen? De RAG-index wordt daarna ververst.
+              Weet je zeker dat je &quot;{deleteTarget}&quot; wilt verwijderen? De zoekindex wordt automatisch bijgewerkt.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

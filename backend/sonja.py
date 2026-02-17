@@ -26,7 +26,7 @@ voor de API-response (Sonja denkstappen in de frontend).
 
 from contextvars import ContextVar
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from crewai import Agent
@@ -163,6 +163,33 @@ def _get_memory_filenames() -> list[str]:
     return sorted(f.name for f in _MEMORY_DIR.glob("*.md") if f.is_file())
 
 
+def _memory_filename_date(filename: str) -> datetime | None:
+    """Parse datum uit bestandsnaam DD-MM-YYYY_HH-MM_slug.md. Retourneert datetime op 0:00 of None."""
+    if not filename or len(filename) < 10:
+        return None
+    try:
+        part = filename[:10]  # DD-MM-YYYY
+        d, m, y = int(part[0:2]), int(part[3:5]), int(part[6:10])
+        return datetime(y, m, d)
+    except (ValueError, IndexError):
+        return None
+
+
+def _get_memory_filenames_last_month() -> list[str]:
+    """Lijst van .md herinneringen met datum in de bestandsnaam binnen de laatste 30 dagen (voor context aan Sonja)."""
+    if not _MEMORY_DIR.is_dir():
+        return []
+    cutoff = datetime.now() - timedelta(days=30)
+    names = []
+    for f in _MEMORY_DIR.glob("*.md"):
+        if not f.is_file():
+            continue
+        dt = _memory_filename_date(f.name)
+        if dt is not None and dt >= cutoff:
+            names.append(f.name)
+    return sorted(names)
+
+
 def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
     all_tools = [
         serper_search_tool,
@@ -224,17 +251,17 @@ def _build_prompt(message: str, context: str) -> str:
         )
     now = _now_with_weekday()
     knowledge_files = _get_knowledge_filenames()
-    memory_files = _get_memory_filenames()
+    memory_files_recent = _get_memory_filenames_last_month()
     context_lines = [f"[Huidige datum en tijd: {now}.]"]
     if knowledge_files:
         context_lines.append(
             f"[Kennis: er zijn knowledge-bestanden beschikbaar (bestanden: {', '.join(knowledge_files)}). "
             "Gebruik read_file met de bestandsnaam of rag_search om semantisch te zoeken.]"
         )
-    if memory_files:
+    if memory_files_recent:
         context_lines.append(
-            f"[Geheugen: er zijn herinneringen beschikbaar (bestanden: {', '.join(memory_files)}). "
-            "Gebruik read_file met memory/bestandsnaam om een herinnering te lezen, of rag_search om semantisch te zoeken.]"
+            f"[Geheugen: recente herinneringen (laatste maand, bestanden: {', '.join(memory_files_recent)}). "
+            "Gebruik read_file met memory/bestandsnaam om een herinnering te lezen, of rag_search om in alle herinneringen te zoeken.]"
         )
     return "\n\n".join(context_lines) + "\n\n" + prompt
 

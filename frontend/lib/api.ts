@@ -446,6 +446,16 @@ export async function deleteKnowledgeFile(filename: string): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete file")
 }
 
+/** Vernieuw de zoekindex (RAG) over alle kennis en herinneringen. Aan te raden na handmatige wijzigingen of als zoeken niet klopt. */
+export async function refreshKnowledgeIndex(): Promise<void> {
+  const res = await fetch(`${API_BASE}/knowledge/refresh`, { method: "POST" })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    const detail = data.detail ?? "Vernieuwen mislukt."
+    throw new Error(typeof detail === "string" ? detail : "Vernieuwen mislukt.")
+  }
+}
+
 // ─── Geheugen (memory/) – alleen lijst, open, bewerken, verwijderen ─────────────────
 
 export async function getMemoryFiles(): Promise<string[]> {

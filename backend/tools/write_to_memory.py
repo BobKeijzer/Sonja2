@@ -71,8 +71,8 @@ class WriteToMemoryTool(BaseTool):
             path = _MEMORY_DIR / filename
         path.write_text(file_content, encoding="utf-8")
 
-        from .rag_tool import refresh_rag_tool
-        refresh_rag_tool()
+        from .rag_tool import rag_add_file
+        rag_add_file(path)
         return f"Herinnering opgeslagen: {filename}. Gebruik read_file met memory/{filename} om het later te lezen."
 
 

@@ -10,7 +10,7 @@ AI-gestuurde marketingassistent voor AFAS Software: CrewAI (Claude) als backend,
 | Frontend | Next.js 15, React 19, TypeScript                 |
 | UI       | Tailwind CSS, Shadcn/ui                          |
 | Zoeken   | Serper API                                       |
-| RAG      | Chroma (lokaal), VoyageAI embeddings             |
+| RAG      | Qdrant (Docker) + VoyageAI embeddings             |
 | Nieuws   | RSS (feedparser), configuratie in `data/`        |
 | Data     | JSON-bestanden; `knowledge/` en `memory/`        |
 
@@ -35,7 +35,7 @@ AfasSonja/
 │   ├── main.py        # API (poort 8000): chat, agenda, kennis, memory, nieuws, vergaderingen, website, concurrenten
 │   ├── sonja.py       # Agent-definitie, tools, knowledge + memory in context
 │   ├── tools/         # RAG, read_file, write_to_memory, Serper, agenda, e-mail, spy, etc.
-│   ├── knowledge/     # Kennisbestanden (.md/.txt) + chroma_db (RAG)
+│   ├── knowledge/     # Kennisbestanden (.md/.txt)
 │   ├── memory/        # Herinneringen (losse .md per entry; alleen via write_to_memory)
 │   └── data/          # agenda.json, competitors.json, news_feeds.json, news_prompts.json
 ├── frontend/          # Next.js App Router
@@ -61,11 +61,22 @@ Maak een `.env` in de **root** en vul in (backend leest deze bij Docker via `env
 
 - `ANTHROPIC_API_KEY` – Claude (CrewAI)
 - `SERPER_API_KEY` – Zoeken (Serper)
-- `VOYAGEAI_API_KEY` – RAG-embeddings
+- `VOYAGEAI_API_KEY` – RAG-embeddings  
+- `QDRANT_URL` – optioneel (default: `http://localhost:6333`) – vectordb voor RAG
 - `OPENAI_MODEL_NAME` – bijv. `anthropic/claude-sonnet-4-5-20250929`
 - `API_PORT=8000`
 - **E-mail (optioneel)** – voor send_email en geplande agenda-taken:
   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`
+
+### RAG (vectordb)
+
+Voor zoeken in kennis en herinneringen moet Qdrant draaien. Start in een aparte terminal:
+
+```bash
+docker run -p 6333:6333 qdrant/qdrant
+```
+
+Zonder Qdrant werkt RAG niet (zoekindex vernieuwen en rag_search in de chat).
 
 ### Backend
 

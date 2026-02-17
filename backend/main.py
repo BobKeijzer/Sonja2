@@ -36,7 +36,7 @@ from competitors import (
     delete_competitor,
 )
 from sonja import get_sonja
-from tools.rag_tool import refresh_rag_tool
+from tools.rag_tool import rag_add_file, rag_remove_file, refresh_rag_tool
 
 
 app = FastAPI(title="Sonja API", version="0.1.0")
@@ -705,14 +705,14 @@ class KnowledgeUpdateRequest(BaseModel):
 
 @app.put("/knowledge/{filename}")
 def knowledge_update(filename: str, body: KnowledgeUpdateRequest):
-    """Bewerk een bestand in knowledge/: schrijf inhoud weg en ververs RAG-index (alleen bij expliciet opslaan)."""
+    """Bewerk een bestand in knowledge/: schrijf inhoud weg en update RAG-index voor dit bestand."""
     if not _safe_filename(filename):
         raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
     path = _KNOWLEDGE_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
     path.write_text(body.content or "", encoding="utf-8")
-    refresh_rag_tool()
+    rag_add_file(path)
     return {"status": "ok", "filename": filename}
 
 
@@ -734,7 +734,7 @@ def knowledge_create(request: KnowledgeCreateRequest):
     _KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
     path = _KNOWLEDGE_DIR / name
     path.write_text(request.content or "", encoding="utf-8")
-    refresh_rag_tool()
+    rag_add_file(path)
     return {"status": "ok", "filename": name}
 
 
@@ -752,28 +752,30 @@ def knowledge_upload(file: UploadFile):
     path = _KNOWLEDGE_DIR / name
     content = file.file.read()
     path.write_bytes(content)
-    refresh_rag_tool()
+    rag_add_file(path)
     return {"status": "ok", "filename": name}
 
 
 @app.delete("/knowledge/{filename}")
 def knowledge_delete(filename: str):
-    """Verwijder een bestand uit knowledge/. RAG-index wordt daarna ververst."""
+    """Verwijder een bestand uit knowledge/. RAG-index wordt voor dit bestand bijgewerkt."""
     if not _safe_filename(filename):
         raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
     path = _KNOWLEDGE_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
+    rag_remove_file(path)
     path.unlink()
-    refresh_rag_tool()
     return {"status": "ok", "filename": filename}
 
 
 @app.post("/knowledge/refresh")
 def knowledge_refresh():
-    """Herbouw de RAG-index over knowledge/ en memory/. Wordt ook na upload/delete automatisch aangeroepen."""
-    refresh_rag_tool()
-    return {"status": "ok", "message": "RAG-index opnieuw opgebouwd."}
+    """Herbouw de RAG-index over knowledge/ en memory/. Vereist dat Qdrant draait (bijv. docker run -p 6333:6333 qdrant/qdrant)."""
+    success, message = refresh_rag_tool()
+    if not success:
+        raise HTTPException(status_code=503, detail=message)
+    return {"status": "ok", "message": message}
 
 
 # --- Geheugen (memory/) – losse .md-bestanden per herinnering; alleen Sonja kan aanmaken ---
@@ -809,27 +811,27 @@ def memory_get_content(filename: str):
 
 @app.put("/memory/{filename}")
 def memory_update(filename: str, body: MemoryUpdateRequest):
-    """Bewerk een memory-bestand. RAG-index wordt daarna ververst."""
+    """Bewerk een memory-bestand. RAG-index wordt voor dit bestand bijgewerkt."""
     if not _safe_filename(filename):
         raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
     path = _MEMORY_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
     path.write_text(body.content or "", encoding="utf-8")
-    refresh_rag_tool()
+    rag_add_file(path)
     return {"status": "ok", "filename": filename}
 
 
 @app.delete("/memory/{filename}")
 def memory_delete(filename: str):
-    """Verwijder een memory-bestand. RAG-index wordt daarna ververst."""
+    """Verwijder een memory-bestand. RAG-index wordt voor dit bestand bijgewerkt."""
     if not _safe_filename(filename):
         raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
     path = _MEMORY_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Bestand niet gevonden.")
+    rag_remove_file(path)
     path.unlink()
-    refresh_rag_tool()
     return {"status": "ok", "filename": filename}
 
 
