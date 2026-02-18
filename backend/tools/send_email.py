@@ -1,19 +1,22 @@
 """
-Stuur een e-mail naar opgegeven adressen.
+Stuur een e-mail via SMTP (Gmail of andere provider).
 Sonja gebruikt deze tool o.a. om de output van geplande taken naar de maillijst te sturen.
 
-Afzender = Sonja's eigen adres: zet in .env EMAIL_FROM (of SONJA_EMAIL), bijv. sonja@afas.nl.
-SMTP: SMTP_HOST, SMTP_PORT (587), SMTP_USER, SMTP_PASSWORD.
+Zet in .env: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM.
+Gmail: smtp.gmail.com, port 465 (SSL) of 587 (TLS), app password voor SMTP_PASSWORD.
 """
 
 import os
 import smtplib
 from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from typing import Type
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
+
+
+def _default_from() -> str:
+    return os.getenv("EMAIL_FROM", "Sonja AFAS <bmj.keijzer@gmail.com>").strip()
 
 
 class SendEmailInput(BaseModel):
@@ -33,24 +36,31 @@ class SendEmailTool(BaseTool):
     def _run(self, to: list[str], subject: str, body: str) -> str:
         if not to:
             return "Fout: geen ontvangers opgegeven."
-        host = os.getenv("SMTP_HOST")
-        user = os.getenv("SMTP_USER")
-        password = os.getenv("SMTP_PASSWORD")
-        # Sonja's afzenderadres: EMAIL_FROM of SONJA_EMAIL (anders SMTP_USER)
-        from_addr = os.getenv("EMAIL_FROM") or os.getenv("SONJA_EMAIL") or user or "sonja@afas.nl"
-        port = int(os.getenv("SMTP_PORT", "587"))
-        if not host or not user or not password:
+        host = os.getenv("SMTP_HOST", "").strip()
+        port_str = os.getenv("SMTP_PORT", "465").strip()
+        user = os.getenv("SMTP_USER", "").strip()
+        password = os.getenv("SMTP_PASSWORD", "").strip()
+        if not all([host, user, password]):
             return "E-mail is niet geconfigureerd (SMTP_HOST, SMTP_USER, SMTP_PASSWORD in .env)."
-        msg = MIMEMultipart("alternative")
+        try:
+            port = int(port_str)
+        except ValueError:
+            port = 465
+        from_addr = _default_from()
+        msg = MIMEText(body, "plain", "utf-8")
         msg["Subject"] = subject
         msg["From"] = from_addr
         msg["To"] = ", ".join(to)
-        msg.attach(MIMEText(body, "plain", "utf-8"))
         try:
-            with smtplib.SMTP(host, port) as s:
-                s.starttls()
-                s.login(user, password)
-                s.sendmail(from_addr, to, msg.as_string())
+            if port == 465:
+                with smtplib.SMTP_SSL(host, port) as server:
+                    server.login(user, password)
+                    server.sendmail(user, to, msg.as_string())
+            else:
+                with smtplib.SMTP(host, port) as server:
+                    server.starttls()
+                    server.login(user, password)
+                    server.sendmail(user, to, msg.as_string())
             return f"E-mail verzonden naar {', '.join(to)}."
         except Exception as e:
             return f"Kon e-mail niet versturen: {e}"

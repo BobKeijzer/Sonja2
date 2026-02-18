@@ -1,12 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Fragment } from "react"
 import {
   Plus,
   Pencil,
   Trash2,
-  Clock,
-  Mail,
   RepeatIcon,
   CalendarDays,
   X,
@@ -15,33 +13,54 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { MarkdownContent } from "@/components/markdown-content"
+import { ThinkingSteps } from "@/components/thinking-steps"
 import type { AgendaItem } from "@/lib/types"
 import {
   getAgendaItems,
+  addEmojis,
   createAgendaItem,
   updateAgendaItem,
   deleteAgendaItem,
 } from "@/lib/api"
+
+function formatRunAt(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  try {
+    const d = new Date(iso)
+    return d.toLocaleString("nl-NL", {
+      dateStyle: "short",
+      timeStyle: "short",
+    })
+  } catch {
+    return iso
+  }
+}
 
 export function AgendaScreen() {
   const [items, setItems] = useState<AgendaItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const [formTitle, setFormTitle] = useState("")
   const [formPrompt, setFormPrompt] = useState("")
   const [formType, setFormType] = useState<"once" | "recurring">("once")
   const [formSchedule, setFormSchedule] = useState("")
-  const [formEmail, setFormEmail] = useState("")
-  const [formEmails, setFormEmails] = useState<string[]>([])
+  const [scheduleError, setScheduleError] = useState("")
 
-  // Load from backend
+  const refresh = () => {
+    getAgendaItems().then(setItems).catch(() => {})
+  }
+
+  // Load + poll elke 60s (zelfde ritme als scheduler get_due_items)
   useEffect(() => {
-    getAgendaItems()
-      .then(setItems)
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    getAgendaItems().then(setItems).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+  useEffect(() => {
+    const interval = setInterval(refresh, 60_000)
+    return () => clearInterval(interval)
   }, [])
 
   const resetForm = () => {
@@ -49,8 +68,7 @@ export function AgendaScreen() {
     setFormPrompt("")
     setFormType("once")
     setFormSchedule("")
-    setFormEmail("")
-    setFormEmails([])
+    setScheduleError("")
     setEditingItem(null)
   }
 
@@ -59,65 +77,67 @@ export function AgendaScreen() {
     setShowModal(true)
   }
 
-  const openEdit = (item: AgendaItem) => {
+  const openEdit = (e: React.MouseEvent, item: AgendaItem) => {
+    e.stopPropagation()
     setEditingItem(item)
     setFormTitle(item.title)
     setFormPrompt(item.prompt)
     setFormType(item.type)
     setFormSchedule(item.schedule)
-    setFormEmails(item.mail_to)
     setShowModal(true)
   }
 
   const handleSave = async () => {
     if (!formTitle.trim() || !formPrompt.trim()) return
+    setScheduleError("")
+    if (!formSchedule.trim()) {
+      setScheduleError(
+        formType === "once"
+          ? "Vul een datum en tijd in (bijv. 2026-04-27T08:00:00)."
+          : "Vul een cron-expressie in (bijv. 0 9 * * 1-5 voor wekelijks ma–vr 09:00)."
+      )
+      return
+    }
 
     if (editingItem) {
       try {
-        const updated = await updateAgendaItem(editingItem.id, {
+        await updateAgendaItem(editingItem.id, {
           title: formTitle,
           prompt: formPrompt,
           type: formType,
           schedule: formSchedule,
-          mail_to: formEmails,
         })
-        setItems((prev) =>
-          prev.map((item) => (item.id === editingItem.id ? updated : item))
-        )
+        refresh()
       } catch { /* ignore */ }
     } else {
       try {
-        const created = await createAgendaItem({
+        await createAgendaItem({
           title: formTitle,
           prompt: formPrompt,
           type: formType,
           schedule: formSchedule,
-          mail_to: formEmails,
         })
-        setItems((prev) => [...prev, created])
+        refresh()
       } catch { /* ignore */ }
     }
     setShowModal(false)
     resetForm()
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
     try {
       await deleteAgendaItem(id)
-      setItems((prev) => prev.filter((item) => item.id !== id))
+      refresh()
+      if (expandedId === id) setExpandedId(null)
     } catch { /* ignore */ }
   }
 
-  const addEmail = () => {
-    if (formEmail.trim() && !formEmails.includes(formEmail.trim())) {
-      setFormEmails((prev) => [...prev, formEmail.trim()])
-      setFormEmail("")
-    }
-  }
-
-  const removeEmail = (email: string) => {
-    setFormEmails((prev) => prev.filter((e) => e !== email))
-  }
+  const sortedItems = [...items].sort((a, b) => {
+    const da = a.last_run_at || a.created_at || ""
+    const db = b.last_run_at || b.created_at || ""
+    return new Date(db).getTime() - new Date(da).getTime()
+  })
 
   if (loading) {
     return (
@@ -143,79 +163,129 @@ export function AgendaScreen() {
           </Button>
         </div>
 
-        {items.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <CalendarDays className="mb-4 h-12 w-12 text-muted-foreground/40" />
-              <p className="text-sm font-medium text-muted-foreground">
-                Nog geen agenda items
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Maak een nieuw item aan om Sonja automatisch taken te laten uitvoeren.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {items.map((item) => (
-              <Card key={item.id}>
-                <CardContent className="flex items-start gap-4 p-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="text-sm font-semibold text-card-foreground truncate">
-                        {item.title}
-                      </h3>
-                      <Badge
-                        variant={item.type === "recurring" ? "default" : "secondary"}
-                        className="shrink-0 text-[10px]"
+        {/* Eén lijst taken: sorteer op last_run_at (meest recent bovenaan), anders created_at. Klik om uit te klappen. */}
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-foreground">
+            Taken
+          </h2>
+          {sortedItems.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <CalendarDays className="mb-3 h-10 w-10 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">
+                  Nog geen agenda items. Maak een nieuw item om Sonja automatisch taken te laten uitvoeren.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50">
+                    <th className="px-3 py-2 text-left font-medium text-foreground">
+                      Laatst uitgevoerd
+                    </th>
+                    <th className="px-3 py-2 text-left font-medium text-foreground">
+                      Titel
+                    </th>
+                    <th className="px-3 py-2 text-left font-medium text-foreground hidden sm:table-cell">
+                      Type
+                    </th>
+                    <th className="w-20 px-3 py-2 text-right font-medium text-foreground">
+                      Acties
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedItems.map((item) => (
+                    <Fragment key={item.id}>
+                      <tr
+                        className={`border-b border-border last:border-b-0 hover:bg-muted/30 cursor-pointer ${expandedId === item.id ? "bg-muted/40" : ""}`}
+                        onClick={() => setExpandedId((id) => (id === item.id ? null : item.id))}
                       >
-                        {item.type === "recurring" ? (
-                          <RepeatIcon className="mr-1 h-3 w-3" />
-                        ) : null}
-                        {item.type === "recurring" ? "Terugkerend" : "Eenmalig"}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                      {item.prompt}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {item.schedule}
-                      </span>
-                      {item.mail_to.length > 0 && (
-                        <span className="flex items-center gap-1">
-                          <Mail className="h-3 w-3" />
-                          {item.mail_to.join(", ")}
-                        </span>
+                        <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                          {formatRunAt(item.last_run_at ?? null)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="font-medium text-card-foreground">{item.title}</span>
+                          <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                            {item.prompt}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2 hidden sm:table-cell">
+                          <Badge
+                            variant={item.type === "recurring" ? "default" : "secondary"}
+                            className="text-[10px]"
+                          >
+                            {item.type === "recurring" ? (
+                              <RepeatIcon className="mr-1 h-2.5 w-2.5 inline" />
+                            ) : null}
+                            {item.type === "recurring" ? "Terugkerend" : "Eenmalig"}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={(e) => openEdit(e, item)}
+                            >
+                              <Pencil className="h-3 w-3" />
+                              <span className="sr-only">Bewerk</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={(e) => handleDelete(e, item.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              <span className="sr-only">Verwijder</span>
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedId === item.id && (
+                        <tr className="border-b border-border bg-muted/20">
+                          <td colSpan={4} className="px-3 py-3">
+                            <div className="space-y-3 text-sm">
+                              {item.last_run_at ? (
+                                <>
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    Laatste run: {formatRunAt(item.last_run_at)}
+                                  </p>
+                                  {(item.last_run_steps?.length ?? 0) > 0 && (
+                                    <div className="mt-2">
+                                      <ThinkingSteps
+                                        steps={addEmojis(item.last_run_steps ?? [])}
+                                        defaultOpen
+                                      />
+                                    </div>
+                                  )}
+                                  {item.last_run_response && (
+                                    <div className="mt-2">
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Antwoord Sonja</p>
+                                      <div className="rounded-md bg-background/80 p-3 text-card-foreground [&_.markdown-content]:text-sm">
+                                        <MarkdownContent content={item.last_run_response} />
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="text-muted-foreground">Nog niet uitgevoerd.</p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => openEdit(item)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      <span className="sr-only">Bewerk</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(item.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span className="sr-only">Verwijder</span>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
 
       {/* Modal */}
@@ -264,11 +334,14 @@ export function AgendaScreen() {
                 >
                   Prompt
                 </label>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Beschrijf de opdracht. Voor e-mail: vermeld in de tekst (bijv. &quot;mail het resultaat naar jan@voorbeeld.nl&quot;).
+                </p>
                 <textarea
                   id="agenda-prompt"
                   value={formPrompt}
                   onChange={(e) => setFormPrompt(e.target.value)}
-                  placeholder="Wat moet Sonja doen?"
+                  placeholder="Wat moet Sonja doen? Optioneel: mail het resultaat naar ..."
                   rows={3}
                   className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 />
@@ -303,62 +376,43 @@ export function AgendaScreen() {
                 >
                   Planning
                 </label>
-                <input
-                  id="agenda-schedule"
-                  type="text"
-                  value={formSchedule}
-                  onChange={(e) => setFormSchedule(e.target.value)}
-                  placeholder={formType === "recurring" ? "Cron: 0 9 * * 1-5" : "ISO: 2026-04-27T08:00:00"}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-              </div>
-
-              <div>
-                <span className="mb-1 block text-xs font-medium text-card-foreground">
-                  Email ontvangers
-                </span>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    value={formEmail}
-                    onChange={(e) => setFormEmail(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        addEmail()
-                      }
-                    }}
-                    placeholder="email@voorbeeld.nl"
-                    className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addEmail}
-                  >
-                    Toevoegen
-                  </Button>
-                </div>
-                {formEmails.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {formEmails.map((email) => (
-                      <Badge
-                        key={email}
-                        variant="secondary"
-                        className="gap-1 pr-1 text-xs"
-                      >
-                        {email}
-                        <button
-                          type="button"
-                          onClick={() => removeEmail(email)}
-                          className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
-                        >
-                          <X className="h-2.5 w-2.5" />
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
+                {formType === "once" ? (
+                  <>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      Eenmalige taak: vul datum en tijd in (Europe/Amsterdam). Formaat: <code className="rounded bg-muted px-1">YYYY-MM-DDTHH:MM:00</code>, bijv. 2026-04-27T08:00:00 voor 27 april 2026 om 08:00.
+                    </p>
+                    <input
+                      id="agenda-schedule"
+                      type="text"
+                      value={formSchedule}
+                      onChange={(e) => {
+                        setFormSchedule(e.target.value)
+                        setScheduleError("")
+                      }}
+                      placeholder="2026-04-27T08:00:00"
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      Terugkerende taak: vul een cron-expressie in. Vijf velden: minuut uur dag maand weekdag. Voorbeelden: <code className="rounded bg-muted px-1">0 9 * * *</code> = dagelijks 09:00, <code className="rounded bg-muted px-1">0 9 * * 1-5</code> = ma–vr 09:00, <code className="rounded bg-muted px-1">*/15 * * * *</code> = elke 15 min.
+                    </p>
+                    <input
+                      id="agenda-schedule"
+                      type="text"
+                      value={formSchedule}
+                      onChange={(e) => {
+                        setFormSchedule(e.target.value)
+                        setScheduleError("")
+                      }}
+                      placeholder="0 9 * * 1-5"
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </>
+                )}
+                {scheduleError && (
+                  <p className="mt-1 text-xs text-destructive">{scheduleError}</p>
                 )}
               </div>
             </div>

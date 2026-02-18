@@ -23,7 +23,7 @@ const TOOL_EMOJI: Record<string, string> = {
   "delete_agenda_item": "🗑️",
 }
 
-function addEmojis(steps: ThinkingStep[]): ThinkingStep[] {
+export function addEmojis(steps: ThinkingStep[]): ThinkingStep[] {
   return steps.map((s) => ({
     ...s,
     emoji: TOOL_EMOJI[s.tool] || "⚙️",

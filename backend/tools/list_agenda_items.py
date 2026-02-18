@@ -23,7 +23,7 @@ class ListAgendaItemsTool(BaseTool):
     name: str = "list_agenda_items"
     description: str = (
         "Toon alle agenda-items (geplande taken en afspraken). Gebruik dit om te zien wat er in de agenda staat "
-        "of om een item_id te vinden voor update_agenda_item of delete_agenda_item. Retourneert titel, id, type, schedule en mail_to per item."
+        "of om een item_id te vinden voor update_agenda_item of delete_agenda_item. Retourneert titel, id, type en schedule per item."
     )
     args_schema: Type[BaseModel] = ListAgendaItemsInput
 
@@ -33,9 +33,8 @@ class ListAgendaItemsTool(BaseTool):
             return "De agenda is leeg. Gebruik add_agenda_item om een taak of afspraak in te plannen."
         lines = []
         for i, item in enumerate(items, 1):
-            mail = ", ".join(item.mail_to) if item.mail_to else "geen"
             lines.append(
-                f"{i}. {item.title} (id: {item.id})\n   type={item.type}, schedule={item.schedule}, mail_to=[{mail}]"
+                f"{i}. {item.title} (id: {item.id})\n   type={item.type}, schedule={item.schedule}"
             )
         return "Agenda:\n\n" + "\n\n".join(lines)
 

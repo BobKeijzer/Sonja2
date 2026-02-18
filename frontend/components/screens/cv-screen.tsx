@@ -23,6 +23,22 @@ const skills = [
   "Agenda & Planning",
 ]
 
+// Display-label namen voor Sonja’s tools (zelfde teksten als in denkstappen)
+const toolDisplayLabels = [
+  "Op het internet zoeken",
+  "Website-inhoud ophalen",
+  "Bestand uit kennis of geheugen lezen",
+  "Doorzoeken van kennis en geheugen",
+  "Herinnering opslaan",
+  "Concurrentie-onderzoek",
+  "E-mail versturen",
+  "Agenda-item toevoegen",
+  "Agenda-item ophalen",
+  "Agenda bekijken",
+  "Agenda-item bijwerken",
+  "Agenda-item verwijderen",
+]
+
 const personalityTraits = [
   {
     title: "Proactief",
@@ -94,6 +110,24 @@ export function CvScreen() {
                 className="px-3 py-1.5 text-xs font-medium"
               >
                 {skill}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        {/* Tools */}
+        <div className="mb-6">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Tools
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {toolDisplayLabels.map((label) => (
+              <Badge
+                key={label}
+                variant="secondary"
+                className="px-3 py-1.5 text-xs font-medium"
+              >
+                {label}
               </Badge>
             ))}
           </div>

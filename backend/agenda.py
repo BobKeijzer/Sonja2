@@ -1,14 +1,18 @@
 """
-Agenda voor Sonja: taken/afspraken (eenmalig of recurring) met titel, prompt en maillijst.
-Opslag in JSON; elke minuut door scheduler gecheckt.
+Agenda voor Sonja: taken/afspraken (eenmalig of recurring) met titel en prompt.
+Opslag in JSON; elke minuut door scheduler gecheckt. Tijdzone: Europe/Amsterdam.
+E-mail: als de taak resultaat per e-mail moet, geef dat in de prompt aan (bijv. 'mail het resultaat naar jan@example.com').
 """
 
 import json
 import uuid
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+TZ_AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 
 # Bestand in backend/data/agenda.json
 _DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -16,14 +20,17 @@ _AGENDA_FILE = _DATA_DIR / "agenda.json"
 
 
 class AgendaItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")  # oude items met mail_to blijven laden
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
     prompt: str
     type: str = Field(description="once or recurring")
     schedule: str = Field(description="ISO datetime (once) or cron (recurring, bijv. 0 9 * * 1-5)")
-    mail_to: list[str] = Field(default_factory=list, description="E-mailadressen voor resultaat")
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
-    last_run_at: str | None = None  # Voor recurring: niet dubbel runnen
+    last_run_at: str | None = None
+    last_run_response: str | None = None  # Antwoord van Sonja bij laatste run
+    last_run_steps: list[dict] | None = None  # Denkstappen (tool-aanroepen) bij laatste run
 
 
 def _load() -> list[dict]:
@@ -36,6 +43,9 @@ def _load() -> list[dict]:
 
 def _save(items: list[dict]) -> None:
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # Verwijder oude mail_to-velden zodat ze niet meer in de file staan
+    for d in items:
+        d.pop("mail_to", None)
     _AGENDA_FILE.write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -66,8 +76,7 @@ def update_item(item_id: str, **kwargs) -> AgendaItem | None:
     for i, d in enumerate(data):
         if d.get("id") == item_id:
             for k, v in kwargs.items():
-                if k in d:
-                    d[k] = v
+                d[k] = v
             data[i] = d
             _save(data)
             return AgendaItem.model_validate(d)
@@ -87,10 +96,47 @@ def set_last_run(item_id: str, at: datetime) -> None:
     update_item(item_id, last_run_at=at.isoformat())
 
 
-def get_due_items(now: datetime | None = None) -> list[AgendaItem]:
-    """Items die nu (deze minuut) uitgevoerd moeten worden."""
+def get_next_run(item: AgendaItem, now: datetime | None = None) -> datetime | None:
+    """Volgende geplande uitvoering voor dit item (Amsterdam). Voor once: schedule-datum (of None als al uitgevoerd); voor recurring: volgende cron-moment."""
     if now is None:
-        now = datetime.now()
+        now = datetime.now(TZ_AMSTERDAM)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=TZ_AMSTERDAM)
+    else:
+        now = now.astimezone(TZ_AMSTERDAM)
+    if item.type == "once":
+        if item.last_run_at:
+            return None  # Eenmalige taak al uitgevoerd
+        try:
+            raw = item.schedule.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=TZ_AMSTERDAM)
+            else:
+                dt = dt.astimezone(TZ_AMSTERDAM)
+            return dt
+        except Exception:
+            return None
+    if item.type == "recurring":
+        try:
+            from croniter import croniter
+            now_naive = now.replace(tzinfo=None)
+            c = croniter(item.schedule, now_naive)
+            next_naive = c.get_next(datetime)
+            return next_naive.replace(tzinfo=TZ_AMSTERDAM)
+        except Exception:
+            return None
+    return None
+
+
+def get_due_items(now: datetime | None = None) -> list[AgendaItem]:
+    """Items die nu (deze minuut) uitgevoerd moeten worden. Tijdzone: Europe/Amsterdam."""
+    if now is None:
+        now = datetime.now(TZ_AMSTERDAM)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=TZ_AMSTERDAM)
+    else:
+        now = now.astimezone(TZ_AMSTERDAM)
     due: list[AgendaItem] = []
     try:
         from croniter import croniter
@@ -100,26 +146,31 @@ def get_due_items(now: datetime | None = None) -> list[AgendaItem]:
     for item in list_items():
         if item.type == "once":
             try:
-                # schedule = ISO datetime
-                dt = datetime.fromisoformat(item.schedule.replace("Z", "+00:00").replace("+00:00", ""))
-                # Zonder timezone vergelijken we lokaal
-                if dt.tzinfo:
-                    dt = dt.replace(tzinfo=None)
-                if (now - dt).total_seconds() >= 0 and (now - dt).total_seconds() < 60:
+                # schedule = ISO datetime (naive = Amsterdam, of met Z = UTC → omrekenen)
+                raw = item.schedule.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(raw)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=TZ_AMSTERDAM)
+                else:
+                    dt = dt.astimezone(TZ_AMSTERDAM)
+                diff_sec = (now - dt).total_seconds()
+                if 0 <= diff_sec < 60:
                     due.append(item)
             except Exception:
                 continue
         elif item.type == "recurring" and croniter:
             try:
-                # schedule = cron (bijv. 0 9 * * 1-5)
-                c = croniter(item.schedule, now)
+                # schedule = cron (bijv. 0 9 * * 1-5); croniter met Amsterdam-tijd
+                now_naive = now.replace(tzinfo=None)
+                c = croniter(item.schedule, now_naive)
                 prev = c.get_prev(datetime)
-                if (now - prev).total_seconds() < 60:
-                    # Recurring: niet twee keer in dezelfde minuut
+                if (now_naive - prev).total_seconds() < 60:
                     if item.last_run_at:
                         try:
                             last = datetime.fromisoformat(item.last_run_at.replace("Z", "+00:00"))
-                            if (now - last).total_seconds() < 60:
+                            if last.tzinfo:
+                                last = last.astimezone(TZ_AMSTERDAM).replace(tzinfo=None)
+                            if (now_naive - last).total_seconds() < 60:
                                 continue
                         except Exception:
                             pass

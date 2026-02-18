@@ -4,11 +4,12 @@ Start met: uv run uvicorn main:app --reload (vanuit backend/) of met API_PORT ui
 """
 
 import asyncio
+import calendar
 import json
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import feedparser
@@ -25,7 +26,7 @@ from agenda import (
     update_item as agenda_update,
     delete_item as agenda_delete,
     get_due_items,
-    set_last_run,
+    get_next_run,
 )
 from competitors import (
     Competitor,
@@ -35,7 +36,7 @@ from competitors import (
     update_competitor,
     delete_competitor,
 )
-from sonja import get_sonja
+from sonja import get_sonja, create_sonja_ephemeral
 from tools.rag_tool import rag_add_file, rag_remove_file, refresh_rag_tool
 
 
@@ -104,8 +105,8 @@ async def _chat_stream_generator(message: str, context: str):
 
 
 async def _stream_prompt_generator(prompt: str):
-    """Yield SSE events voor een willekeurige Sonja-prompt (geen chat-context)."""
-    sonja = get_sonja()
+    """Yield SSE events voor een willekeurige Sonja-prompt (geen chat-context). Gebruikt eigen Sonja-instantie, wordt na afloop verworpen."""
+    sonja = create_sonja_ephemeral()
     steps_list: list[dict] = []
     task = asyncio.create_task(
         sonja.chat_async_with_list(prompt, "", steps_list)
@@ -175,7 +176,7 @@ async def meetings_extract(request: MeetingsExtractRequest):
     """Haal actiepunten, to-do's en kennis uit een transcript; leerpunten worden opgeslagen als herinnering in memory/."""
     transcript = request.transcript or ""
     prompt = _meetings_prompt(transcript, request.custom_prompt)
-    sonja = get_sonja()
+    sonja = create_sonja_ephemeral()
     response, steps = await sonja.chat_async(prompt, context="")
     return _to_chat_response(response, steps)
 
@@ -217,7 +218,7 @@ async def analyze_website(request: AnalyzeWebsiteRequest):
     if not url:
         raise HTTPException(status_code=400, detail="URL is verplicht.")
     prompt = _website_prompt(url, request.custom_prompt)
-    sonja = get_sonja()
+    sonja = create_sonja_ephemeral()
     response, steps = await sonja.chat_async(prompt, context="")
     return _to_chat_response(response, steps)
 
@@ -264,7 +265,7 @@ async def analyze_competitors(request: AnalyzeCompetitorsRequest):
     if not names:
         raise HTTPException(status_code=400, detail="Minimaal één concurrent opgeven.")
     prompt = _competitors_prompt(names, request.custom_prompt)
-    sonja = get_sonja()
+    sonja = create_sonja_ephemeral()
     response, steps = await sonja.chat_async(prompt, context="")
     return _to_chat_response(response, steps)
 
@@ -407,7 +408,9 @@ def _fetch_news_items() -> list[dict]:
                 published_at = ""
                 if published:
                     try:
-                        published_at = datetime.utcfromtimestamp(time.mktime(published)).isoformat() + "Z"
+                        # feedparser gives UTC struct_time; timegm for UTC epoch seconds
+                        ts = calendar.timegm(published)
+                        published_at = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
                     except Exception:
                         published_at = entry.get("published") or entry.get("updated") or ""
                 image_url = _extract_image_url(entry)
@@ -639,7 +642,7 @@ async def news_generate(body: NewsGenerateRequest):
             detail="task moet zijn: inhaker, linkedin, afas_betekenis of custom.",
         )
     prompt = _news_generate_prompt(body)
-    sonja = get_sonja()
+    sonja = create_sonja_ephemeral()
     response, _ = await sonja.chat_async(prompt, context="")
     return NewsGenerateResponse(content=(response or "").strip())
 
@@ -842,7 +845,6 @@ class AgendaItemCreate(BaseModel):
     prompt: str
     type: str = Field(description="once of recurring")
     schedule: str = Field(description="ISO datetime (once) of cron (recurring)")
-    mail_to: list[str] = Field(default_factory=list)
 
 
 class AgendaItemUpdate(BaseModel):
@@ -850,13 +852,27 @@ class AgendaItemUpdate(BaseModel):
     prompt: str | None = None
     type: str | None = None
     schedule: str | None = None
-    mail_to: list[str] | None = None
 
 
-@app.get("/agenda", response_model=list[AgendaItem])
+class AgendaItemWithNextRun(AgendaItem):
+    """Agenda-item met volgende geplande uitvoering (voor sortering in UI)."""
+    next_run_at: str | None = None
+
+
+@app.get("/agenda", response_model=list[AgendaItemWithNextRun])
 def agenda_list_endpoint():
-    """Lijst van alle agenda-items."""
-    return agenda_list()
+    """Lijst van alle agenda-items met next_run_at (volgende geplande uitvoering, Amsterdam)."""
+    items = agenda_list()
+    result = []
+    for item in items:
+        n = get_next_run(item)
+        result.append(
+            AgendaItemWithNextRun(
+                **item.model_dump(),
+                next_run_at=n.isoformat() if n else None,
+            )
+        )
+    return result
 
 
 @app.get("/agenda/{item_id}", response_model=AgendaItem)
@@ -876,7 +892,6 @@ def agenda_create(body: AgendaItemCreate):
         prompt=body.prompt,
         type=body.type,
         schedule=body.schedule,
-        mail_to=body.mail_to,
     )
     agenda_add(item)
     return item
@@ -901,38 +916,61 @@ def agenda_delete_one(item_id: str):
     return {"status": "ok"}
 
 
-# --- Scheduler (elke minuut geplande items uitvoeren) ---
+# --- Scheduler: elke minuut due items; per item parallel een eigen Sonja-instantie (geen queue) ---
 
-def _run_due_agenda_items():
-    """Voer alle items uit die nu due zijn. Wordt elke minuut aangeroepen."""
-    now = datetime.now()
-    due = get_due_items(now)
-    sonja = get_sonja()
-    for item in due:
-        mail_list = ", ".join(item.mail_to) if item.mail_to else "geen"
-        message = (
-            f"Geplande taak: [{item.title}].\n\n"
-            f"Voer de volgende opdracht uit: {item.prompt}\n\n"
-            f"Stuur daarna het resultaat per e-mail naar: {mail_list}. "
-            "Gebruik de send_email tool met onderwerp gelijk aan de titel van deze taak."
+_agenda_running_ids: set[str] = set()
+_agenda_running_lock = threading.Lock()
+
+
+def _run_agenda_item(item_id: str) -> None:
+    """Voert één agenda-item uit in een eigen Sonja-instantie. Na afloop: id uit _agenda_running_ids."""
+    from zoneinfo import ZoneInfo
+    item = agenda_get(item_id)
+    if item is None:
+        with _agenda_running_lock:
+            _agenda_running_ids.discard(item_id)
+        return
+    now = datetime.now(ZoneInfo("Europe/Amsterdam"))
+    print(f"[Agenda] Start taak: {item.title}")
+    sonja = create_sonja_ephemeral()
+    message = (
+        f"Geplande taak: [{item.title}].\n\n"
+        f"Voer de volgende opdracht uit: {item.prompt}\n\n"
+        "Als in de opdracht staat dat je het resultaat per e-mail moet sturen (bijv. 'mail naar ...'), gebruik dan de send_email tool."
+    )
+    try:
+        response, steps = sonja.chat(message)
+        agenda_update(
+            item.id,
+            last_run_at=now.isoformat(),
+            last_run_response=response or "",
+            last_run_steps=steps,
         )
-        try:
-            sonja.chat(message)
-            if item.type == "once":
-                agenda_delete(item.id)
-            else:
-                set_last_run(item.id, now)
-        except Exception as e:
-            # Log maar blokkeer scheduler niet
-            print(f"Agenda-item {item.id} fout: {e}")
+        print(f"[Agenda] Taak uitgevoerd: {item.title}")
+    except Exception as e:
+        print(f"[Agenda] Item {item.id} fout: {e}")
+    finally:
+        with _agenda_running_lock:
+            _agenda_running_ids.discard(item.id)
 
 
 def _scheduler_loop():
-    """Background thread: direct eerste check, daarna elke 60 seconden agenda checken."""
-    time.sleep(5)  # Even wachten tot app klaar is
+    """Elke 60 seconden: get_due_items(); voor elk item dat nog niet draait, start een thread met eigen Sonja."""
+    time.sleep(5)
     while True:
         try:
-            _run_due_agenda_items()
+            from zoneinfo import ZoneInfo
+            now = datetime.now(ZoneInfo("Europe/Amsterdam"))
+            due = get_due_items(now)
+            for item in due:
+                with _agenda_running_lock:
+                    if item.id in _agenda_running_ids:
+                        continue
+                    _agenda_running_ids.add(item.id)
+                t = threading.Thread(target=_run_agenda_item, args=(item.id,), daemon=True)
+                t.start()
+            if due:
+                print(f"[Agenda] {len(due)} due item(s) gestart (om {now.strftime('%H:%M')} Amsterdam)")
         except Exception as e:
             print(f"Scheduler fout: {e}")
         time.sleep(60)
@@ -940,8 +978,7 @@ def _scheduler_loop():
 
 @app.on_event("startup")
 def start_scheduler():
-    t = threading.Thread(target=_scheduler_loop, daemon=True)
-    t.start()
+    threading.Thread(target=_scheduler_loop, daemon=True).start()
 
 
 # --- Health ---

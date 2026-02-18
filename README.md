@@ -12,20 +12,25 @@ AI-gestuurde marketingassistent voor AFAS Software: CrewAI (Claude) als backend,
 | Zoeken   | Serper API                                       |
 | RAG      | Qdrant (Docker) + VoyageAI embeddings             |
 | Nieuws   | RSS (feedparser), configuratie in `data/`        |
-| Data     | JSON-bestanden; `knowledge/` en `memory/`        |
+| Data     | JSON-bestanden; `knowledge/`, `memory/`, `data/agenda.json` |
 
 ## Functionaliteiten
 
 - **Dynamische stappenlijst (Sonja SSE)** – Denkstappen (tool-aanroepen) streamen real-time binnen op chat, vergaderingen, website, concurrenten en nieuws.
 - **Chat** – Gesprekken met Sonja, chatgeschiedenis, denkstappen (tools) en dynamische avatars (denken/regelen tijdens wachten, blij → koffie na antwoord)
-- **Agenda** – Taken en afspraken (eenmalig en terugkerend, cron), e-mail bij afgeronde taken
+- **Agenda** – Eén lijst taken (eenmalig en terugkerend, cron). Scheduler voert due items uit; per item wordt laatste run (datum, denkstappen, antwoord) op het item bewaard. Klik op een taak om uit te klappen. E-mail kan in de prompt (bijv. “mail het resultaat naar …”). Taken worden niet automatisch verwijderd; alleen de gebruiker kan verwijderen. Sonja kan via agenda-tools items aanmaken, aanpassen en verwijderen.
 - **Vergaderingen** – Transcripties analyseren, actiepunten en leerpunten; herinneringen in `memory/`
 - **Website-analyse** – Scrapen en analyseren van URLs (SEO, content, tone of voice)
 - **Concurrentie** – Concurrenten beheren en onderzoeken (spy_competitor_research)
 - **Nieuws** – RSS-feeds (o.a. NOS, Nu.nl, AD), gegenereerde inhakers, LinkedIn-posts en “betekenis voor AFAS”; eigen prompts en feeds instelbaar
 - **Kennis** – Documenten in `knowledge/` (upload, nieuw, bewerken); Sonja gebruikt ze via RAG en read_file
 - **Geheugen** – Herinneringen in `memory/` (één bestand per herinnering); alleen Sonja maakt ze aan via write_to_memory; bewerken/verwijderen in de UI
-- **E-mail** – Notificaties via SMTP (o.a. Outlook) voor agenda en resultaten
+- **E-mail** – Notificaties via SMTP (bijv. Gmail met app password) voor agenda en resultaten
+
+## Sonja-instanties
+
+- **Chat** gebruikt één vaste Sonja-instantie (`get_sonja()`), zodat chatgeschiedenis en context behouden blijven.
+- **Agenda-runs, vergaderingen, website-analyse, concurrenten, nieuws** gebruiken per aanroep/run een eigen instantie (`create_sonja_ephemeral()`), die na afloop wordt verworpen. Zo kunnen o.a. meerdere agenda-taken parallel lopen zonder de chat te blokkeren.
 
 ## Projectstructuur
 
@@ -33,11 +38,11 @@ AI-gestuurde marketingassistent voor AFAS Software: CrewAI (Claude) als backend,
 AfasSonja/
 ├── backend/           # FastAPI, CrewAI-agent, tools
 │   ├── main.py        # API (poort 8000): chat, agenda, kennis, memory, nieuws, vergaderingen, website, concurrenten
-│   ├── sonja.py       # Agent-definitie, tools, knowledge + memory in context
+│   ├── sonja.py       # Agent: get_sonja() (chat-singleton), create_sonja_ephemeral() (agenda-run, vergaderingen, website, …)
 │   ├── tools/         # RAG, read_file, write_to_memory, Serper, agenda, e-mail, spy, etc.
 │   ├── knowledge/     # Kennisbestanden (.md/.txt)
 │   ├── memory/        # Herinneringen (losse .md per entry; alleen via write_to_memory)
-│   └── data/          # agenda.json, competitors.json, news_feeds.json, news_prompts.json
+│   └── data/          # agenda.json (taken + last_run_*), competitors.json, news_feeds.json, news_prompts.json
 ├── frontend/          # Next.js App Router
 │   ├── app/
 │   ├── components/    # o.a. SonjaAvatar (mood), screens (chat, agenda, vergaderingen, website, concurrenten, nieuws, kennis, geheugen, cv, instellingen)
@@ -65,8 +70,22 @@ Maak een `.env` in de **root** en vul in (backend leest deze bij Docker via `env
 - `QDRANT_URL` – optioneel (default: `http://localhost:6333`) – vectordb voor RAG
 - `OPENAI_MODEL_NAME` – bijv. `anthropic/claude-sonnet-4-5-20250929`
 - `API_PORT=8000`
-- **E-mail (optioneel)** – voor send_email en geplande agenda-taken:
-  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`
+- **E-mail (optioneel)** – voor de send_email tool (SMTP):
+  - `SMTP_HOST` – bijv. `smtp.gmail.com`
+  - `SMTP_PORT` – `465` (SSL) of `587` (TLS)
+  - `SMTP_USER` – je e-mailadres, bijv. `jouw@gmail.com`
+  - `SMTP_PASSWORD` – wachtwoord; **voor Gmail: gebruik een [App Password](https://support.google.com/accounts/answer/185833)** (niet je gewone wachtwoord)
+  - `EMAIL_FROM` – afzenderweergave, bijv. `Sonja AFAS <jouw@gmail.com>`
+
+  Voorbeeld voor Gmail:
+  ```env
+  SMTP_HOST=smtp.gmail.com
+  SMTP_PORT=465
+  SMTP_USER=jouw@gmail.com
+  SMTP_PASSWORD=xxxx xxxx xxxx xxxx
+  EMAIL_FROM=Sonja AFAS <jouw@gmail.com>
+  ```
+  (Vervang `xxxx xxxx xxxx xxxx` door je 16-tekens app password van Google.)
 
 ### RAG (vectordb)
 

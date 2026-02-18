@@ -8,6 +8,7 @@ from .rag_tool import rag_tool
 from .spy_competitor_research import spy_competitor_research_tool
 from .send_email import send_email_tool
 from .add_agenda_item import add_agenda_item_tool
+from .get_agenda_item import get_agenda_item_tool
 from .list_agenda_items import list_agenda_items_tool
 from .update_agenda_item import update_agenda_item_tool
 from .delete_agenda_item import delete_agenda_item_tool
@@ -21,6 +22,7 @@ __all__ = [
     "spy_competitor_research_tool",
     "send_email_tool",
     "add_agenda_item_tool",
+    "get_agenda_item_tool",
     "list_agenda_items_tool",
     "update_agenda_item_tool",
     "delete_agenda_item_tool",

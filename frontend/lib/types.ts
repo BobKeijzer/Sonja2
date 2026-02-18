@@ -27,9 +27,14 @@ export interface AgendaItem {
   prompt: string
   type: "once" | "recurring"
   schedule: string
-  mail_to: string[]
   created_at?: string
   last_run_at?: string | null
+  /** Volgende geplande uitvoering (ISO), alleen bij GET /agenda */
+  next_run_at?: string | null
+  /** Antwoord van Sonja bij laatste run */
+  last_run_response?: string | null
+  /** Denkstappen (tool-aanroepen) bij laatste run */
+  last_run_steps?: ThinkingStep[] | null
 }
 
 export interface Competitor {

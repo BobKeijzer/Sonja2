@@ -13,6 +13,7 @@ Huidige tools (tools/):
 - spy_competitor_research_tool: roept research-subagent aan voor concurrentie-onderzoek
 - send_email_tool: stuur e-mail naar opgegeven adressen (o.a. resultaat geplande taken)
 - list_agenda_items_tool: toon alle agenda-items
+- get_agenda_item_tool: haal één agenda-item op op id (inclusief last_run_*)
 - add_agenda_item_tool: voeg taak/afspraak toe (eenmalig of recurring)
 - update_agenda_item_tool: werk agenda-item bij
 - delete_agenda_item_tool: verwijder agenda-item
@@ -41,6 +42,7 @@ from tools import (
     spy_competitor_research_tool,
     send_email_tool,
     add_agenda_item_tool,
+    get_agenda_item_tool,
     list_agenda_items_tool,
     update_agenda_item_tool,
     delete_agenda_item_tool,
@@ -65,7 +67,7 @@ def _step_display_label(tool_name: str, kwargs: dict[str, Any]) -> str:
         q = get("search_query")
         return f"Op het internet zoeken naar: {q}" if q else "Op het internet zoeken."
     if tool_name == "Read website content":
-        url = get("url") or get("link")
+        url = get("website_url") or get("url") or get("link")
         return f"Pagina-inhoud ophalen van: {url}" if url else "Website-inhoud ophalen."
     if tool_name == "read_file":
         path = get("file_path")
@@ -94,6 +96,9 @@ def _step_display_label(tool_name: str, kwargs: dict[str, Any]) -> str:
     if tool_name == "list_agenda_items":
         q = get("optional_query")
         return "Agenda doorzoeken." if q else "Agenda bekijken."
+    if tool_name == "get_agenda_item":
+        iid = get("item_id")
+        return f"Agenda-item ophalen: {iid}" if iid else "Agenda-item ophalen."
     if tool_name == "update_agenda_item":
         iid = get("item_id")
         return f"Agenda-item bijwerken: {iid}" if iid else "Agenda-item bijwerken."
@@ -200,6 +205,7 @@ def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
         spy_competitor_research_tool,
         send_email_tool,
         add_agenda_item_tool,
+        get_agenda_item_tool,
         list_agenda_items_tool,
         update_agenda_item_tool,
         delete_agenda_item_tool,
@@ -221,7 +227,7 @@ def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
             "Deel proactief inzichten en trends waar relevant — net als bij de koffieautomaat. "
             "Gebruik de juiste tools: serper_search en scrape_website voor web, read_file voor bestanden in knowledge/ of memory/ (gebruik memory/bestandsnaam voor herinneringen), rag_search voor semantisch zoeken in knowledge en herinneringen, "
             "write_to_memory om een nieuwe herinnering aan te maken (titel + inhoud; één bestand per herinnering in memory/), spy_competitor_research voor concurrentie-onderzoek, "
-            "list_agenda_items / add_agenda_item / update_agenda_item / delete_agenda_item voor de agenda, send_email voor resultaten. "
+            "list_agenda_items / get_agenda_item / add_agenda_item / update_agenda_item / delete_agenda_item voor de agenda (get_agenda_item om last run en antwoord te bekijken), send_email voor resultaten. "
             "Leer van feedback: sla het op met write_to_memory (één aanroep met titel en inhoud). "
             "Roep write_to_memory zo min mogelijk aan: bundel in één dense entry per herinnering. "
             "Wees behulpzaam, informeel waar het past, en antwoord in het Nederlands. Een grapje mag — dat hoort bij AFAS (Doen, Vertrouwen, Gek, Familie)."
@@ -232,7 +238,7 @@ def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
             "Hoe je werkt: (1) Eerst vragen stellen — wat wil iemand bereiken, voor wie? (2) Met die context aan de slag; Doen, niet lullen. "
             "(3) Feedback en leerpunten opslaan als herinnering met write_to_memory (titel + inhoud; één bestand per herinnering). "
             "Tools: read_file voor knowledge/ of memory/ (memory/bestandsnaam), rag_search voor knowledge en herinneringen, write_to_memory om een nieuw bestand in memory/ aan te maken. "
-            "Agenda: list_agenda_items, add_agenda_item, update_agenda_item, delete_agenda_item; bij geplande taken send_email voor het resultaat. "
+            "Agenda: list_agenda_items, get_agenda_item (laatste run/antwoord bekijken), add_agenda_item, update_agenda_item, delete_agenda_item; bij geplande taken send_email voor het resultaat. "
             "Subagents roep je aan via tools (bijv. spy_competitor_research). Antwoord altijd in het Nederlands."
         ),
         tools=all_tools,
@@ -314,8 +320,15 @@ _sonja_instance: SonjaAssistant | None = None
 
 
 def get_sonja() -> SonjaAssistant:
-    """Singleton Sonja-instantie."""
+    """Singleton Sonja-instantie (chat en andere lange-sessie flows)."""
     global _sonja_instance
     if _sonja_instance is None:
         _sonja_instance = SonjaAssistant()
     return _sonja_instance
+
+
+def create_sonja_ephemeral() -> SonjaAssistant:
+    """Nieuwe Sonja-instantie voor eenmalig gebruik (bijv. agenda-run). Niet de chat-singleton; kan parallel gebruikt worden.
+    De instantie wordt nergens bewaard: zodra de aanroeper klaar is (bv. request afgerond of thread eindigt),
+    zijn er geen referenties meer en ruimt Python de instance via garbage collection op. Geen expliciete verwijdering nodig."""
+    return SonjaAssistant()
