@@ -72,7 +72,7 @@ AfasSonja/
 - Python 3.11+
 - **uv** – Python package manager (als je die nog niet hebt: [install uv](https://docs.astral.sh/uv/getting-started/installation/), bijv. `curl -LsSf https://astral.sh/uv/install.sh | sh` of `pip install uv`)
 - Node.js 18+
-- npm
+- pnpm
 
 ### Environment
 
@@ -132,8 +132,8 @@ Zie [backend/README.md](backend/README.md) voor details.
 
 ```bash
 cd frontend
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Frontend: http://localhost:3000. Zie [frontend/README.md](frontend/README.md) voor details.
