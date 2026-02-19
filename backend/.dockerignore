@@ -13,7 +13,11 @@ __pycache__
 *.md
 !README.md
 
-# Local data (mount or env in production)
+# Local data (align met .gitignore; mount bij run indien nodig)
+data/
+knowledge/
+memory/
+call_transcripts/
 chroma_db/
 .env
 .env.*

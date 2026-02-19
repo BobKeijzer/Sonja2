@@ -1,10 +1,12 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { Moon, LayoutGrid, Bell } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Moon, LayoutGrid, Bell, FileText, Upload } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
+import { getCallTranscriptFiles, uploadCallTranscriptFile } from "@/lib/api"
 
 interface SettingsState {
   darkMode: boolean
@@ -24,6 +26,9 @@ function getInitialSettings(): SettingsState {
 export function SettingsScreen() {
   const [settings, setSettings] = useState<SettingsState>(getInitialSettings)
   const [hydrated, setHydrated] = useState(false)
+  const [transcriptFiles, setTranscriptFiles] = useState<string[]>([])
+  const [transcriptUploading, setTranscriptUploading] = useState(false)
+  const transcriptInputRef = useRef<HTMLInputElement>(null)
 
   // Load saved settings on mount (once)
   useEffect(() => {
@@ -44,6 +49,31 @@ export function SettingsScreen() {
     }
     setHydrated(true)
   }, [])
+
+  const loadTranscriptFiles = useCallback(() => {
+    getCallTranscriptFiles()
+      .then(setTranscriptFiles)
+      .catch(() => setTranscriptFiles([]))
+  }, [])
+
+  useEffect(() => {
+    if (hydrated) loadTranscriptFiles()
+  }, [hydrated, loadTranscriptFiles])
+
+  const handleTranscriptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setTranscriptUploading(true)
+    try {
+      await uploadCallTranscriptFile(file)
+      loadTranscriptFiles()
+    } catch {
+      // ignore
+    } finally {
+      setTranscriptUploading(false)
+      e.target.value = ""
+    }
+  }
 
   // Persist and apply dark mode on change (only after hydration)
   const updateSetting = useCallback(
@@ -160,6 +190,46 @@ export function SettingsScreen() {
                   }
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Call transcripts */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <FileText className="h-4 w-4" />
+                Call transcripts
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <p className="text-xs text-muted-foreground">
+                Upload .md of .txt bestanden met gesprekstranscripts. Sonja kan ze ophalen via de tool get_call_transcripts (handig bij Docker).
+              </p>
+              <input
+                ref={transcriptInputRef}
+                type="file"
+                accept=".md,.txt"
+                className="hidden"
+                onChange={handleTranscriptUpload}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={transcriptUploading}
+                onClick={() => transcriptInputRef.current?.click()}
+                className="w-fit"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {transcriptUploading ? "Bezig…" : "Bestand uploaden"}
+              </Button>
+              {transcriptFiles.length > 0 && (
+                <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
+                  {transcriptFiles.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+              )}
             </CardContent>
           </Card>
 

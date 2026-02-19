@@ -49,11 +49,23 @@ export function ChatScreen() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const koffieTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const MAX_TEXTAREA_LINES = 12
+  const LINE_HEIGHT_PX = 24
+  const MAX_TEXTAREA_HEIGHT_PX = MAX_TEXTAREA_LINES * LINE_HEIGHT_PX
   const loadingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
+  // Textarea laten groeien tot max 12 regels
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = "auto"
+    const h = Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT_PX)
+    el.style.height = `${h}px`
+  }, [input])
 
   // Na antwoord: na 3s naar koffie
   useEffect(() => {
@@ -142,11 +154,12 @@ export function ChatScreen() {
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       handleSend()
     }
+    // Shift+Enter = nieuwe regel (geen preventDefault)
   }
 
   return (
@@ -206,11 +219,15 @@ export function ChatScreen() {
                 <div
                   className={`rounded-2xl px-4 py-3 ${
                     msg.role === "user"
-                      ? "bg-primary text-primary-foreground [&_.markdown-content]:text-primary-foreground [&_.markdown-content_a]:text-primary-foreground/90"
+                      ? "bg-primary text-primary-foreground"
                       : "bg-card text-card-foreground shadow-sm ring-1 ring-border"
                   }`}
                 >
-                  <MarkdownContent content={msg.content} />
+                  {msg.role === "user" ? (
+                    <span className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.content}</span>
+                  ) : (
+                    <MarkdownContent content={msg.content} />
+                  )}
                 </div>
                 <p className="mt-1 px-1 text-[10px] text-muted-foreground" suppressHydrationWarning>
                   {msg.timestamp.toLocaleTimeString("nl-NL", {
@@ -259,7 +276,8 @@ export function ChatScreen() {
                 onKeyDown={handleKeyDown}
                 placeholder="Stel een vraag aan Sonja..."
                 rows={1}
-                className="w-full resize-none rounded-xl border border-input bg-background px-4 py-3 pr-12 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                style={{ maxHeight: MAX_TEXTAREA_HEIGHT_PX }}
+                className="w-full resize-none overflow-y-auto rounded-xl border border-input bg-background px-4 py-3 pr-12 text-sm leading-6 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
             <Button

@@ -20,4 +20,5 @@ feedparser>=6.0.0
 # Agenda recurring (cron)
 croniter>=2.0.0
 
-# E-mail via SMTP (stdlib smtplib; geen extra package)
+# E-mail via SMTP (body markdown → HTML)
+markdown>=3.5.0

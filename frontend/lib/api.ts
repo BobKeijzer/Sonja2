@@ -457,6 +457,29 @@ export async function refreshKnowledgeIndex(): Promise<void> {
   }
 }
 
+// ─── Call transcripts – lijst + upload (voor get_call_transcripts-tool) ───────────
+
+export async function getCallTranscriptFiles(): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/call_transcripts`)
+  if (!res.ok) throw new Error("Kon transcriptbestanden niet ophalen")
+  const data = await res.json()
+  return data.files ?? []
+}
+
+export async function uploadCallTranscriptFile(file: File): Promise<void> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const res = await fetch(`${API_BASE}/call_transcripts/upload`, {
+    method: "POST",
+    body: formData,
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    const detail = data.detail ?? "Upload mislukt."
+    throw new Error(typeof detail === "string" ? detail : "Upload mislukt.")
+  }
+}
+
 // ─── Geheugen (memory/) – alleen lijst, open, bewerken, verwijderen ─────────────────
 
 export async function getMemoryFiles(): Promise<string[]> {

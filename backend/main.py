@@ -652,6 +652,7 @@ async def news_generate(body: NewsGenerateRequest):
 
 _KNOWLEDGE_DIR = Path(__file__).resolve().parent / "knowledge"
 _MEMORY_DIR = Path(__file__).resolve().parent / "memory"
+_CALL_TRANSCRIPTS_DIR = Path(__file__).resolve().parent / "call_transcripts"
 
 
 def _get_knowledge_filenames() -> list[str]:
@@ -669,6 +670,16 @@ def _get_memory_filenames() -> list[str]:
     if not _MEMORY_DIR.is_dir():
         return []
     return sorted(f.name for f in _MEMORY_DIR.glob("*.md") if f.is_file())
+
+
+def _get_call_transcript_filenames() -> list[str]:
+    """Lijst van .md en .txt bestandsnamen in call_transcripts/."""
+    if not _CALL_TRANSCRIPTS_DIR.is_dir():
+        return []
+    names = []
+    for ext in ("*.md", "*.txt"):
+        names.extend(f.name for f in _CALL_TRANSCRIPTS_DIR.glob(ext) if f.is_file())
+    return sorted(names)
 
 
 def _safe_filename(name: str) -> bool:
@@ -836,6 +847,35 @@ def memory_delete(filename: str):
     rag_remove_file(path)
     path.unlink()
     return {"status": "ok", "filename": filename}
+
+
+# --- Call transcripts – lijst + upload (voor Docker / frontend) ---
+
+class CallTranscriptsListResponse(BaseModel):
+    files: list[str] = Field(description="Bestandsnamen in call_transcripts/.")
+
+
+@app.get("/call_transcripts", response_model=CallTranscriptsListResponse)
+def call_transcripts_list():
+    """Lijst van .md en .txt bestanden in call_transcripts/ (voor Sonja get_call_transcripts)."""
+    return CallTranscriptsListResponse(files=_get_call_transcript_filenames())
+
+
+@app.post("/call_transcripts/upload")
+def call_transcripts_upload(file: UploadFile):
+    """Upload een .md of .txt bestand naar call_transcripts/. Sonja kan het ophalen via get_call_transcripts."""
+    name = (file.filename or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Geen bestandsnaam.")
+    if not _safe_filename(name):
+        raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
+    if not (name.endswith(".md") or name.endswith(".txt")):
+        raise HTTPException(status_code=400, detail="Alleen .md en .txt zijn toegestaan.")
+    _CALL_TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    path = _CALL_TRANSCRIPTS_DIR / name
+    content = file.file.read()
+    path.write_bytes(content)
+    return {"status": "ok", "filename": name}
 
 
 # --- Agenda CRUD ---

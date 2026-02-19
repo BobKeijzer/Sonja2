@@ -14,12 +14,13 @@ AI-gestuurde marketingassistent voor AFAS Software: CrewAI (Claude) als backend,
 | Nieuws   | RSS (feedparser), configuratie in `data/`        |
 | Data     | JSON-bestanden; `knowledge/`, `memory/`, `data/agenda.json`; `call_transcripts/` voor gesprekstranscripts (lokaal) |
 
-### Call transcripts (lokaal testen)
+### Call transcripts
 
-De tool `get_call_transcripts` haalt klantgesprek-transcripts op. Voor nu leest die **lokaal** alle `.txt`- en `.md`-bestanden uit de map `backend/call_transcripts/`. Die map staat in `.gitignore` en komt niet op GitHub.
+De tool `get_call_transcripts` haalt klantgesprek-transcripts op uit de map `backend/call_transcripts/` (lokaal) of uit uploads in de app.
 
-- **Als je transcripts wilt testen:** maak de map `backend/call_transcripts/` aan en zet daar één of meer `.txt`- of `.md`-bestanden met (geplakte) transcripts. Sonja kan ze dan ophalen via de tool.
-- Later wordt dit vervangen door een transcript-platform-API.
+- **Zonder Docker:** Maak de map `backend/call_transcripts/` aan en zet daar `.txt`- of `.md`-bestanden met transcripts. Sonja leest ze via de tool.
+- **Met Docker:** Gebruik in de app **Instellingen → Call transcripts** om bestanden te uploaden (geen host-map nodig).
+- De map staat in `.gitignore` en komt niet op GitHub. Later: transcript-platform-API.
 
 ## Functionaliteiten
 
@@ -62,9 +63,14 @@ AfasSonja/
 
 ## Lokaal starten
 
+**Lokaal (zonder Docker):** Volg de stappen hieronder. Agenda, kennis, geheugen en transcripts worden op je schijf opgeslagen in `backend/data/`, `backend/knowledge/`, `backend/memory/` en `backend/call_transcripts/` en blijven bewaard.
+
+**Docker:** Zie de sectie [Docker](#docker-beide-in-eén-keer) verderop. Werkt direct met `docker compose up --build`, maar er zijn geen volumes: alle data (agenda, kennis, geheugen, geüploade transcripts) staat alleen in de container en is **niet persistent** — na `docker compose down` is die data weg. Handig om snel te testen; voor blijvende data kun je lokaal draaien.
+
 ### Vereisten
 
 - Python 3.11+
+- **uv** – Python package manager (als je die nog niet hebt: [install uv](https://docs.astral.sh/uv/getting-started/installation/), bijv. `curl -LsSf https://astral.sh/uv/install.sh | sh` of `pip install uv`)
 - Node.js 18+
 - pnpm
 
@@ -107,6 +113,14 @@ Zonder Qdrant werkt RAG niet (zoekindex vernieuwen en rag_search in de chat).
 
 ### Backend
 
+Installeer eerst de dependencies (vanuit de **root** van het project):
+
+```bash
+uv pip install -r backend/requirements.txt
+```
+
+Start daarna de server:
+
 ```bash
 cd backend
 uv run uvicorn main:app --reload
@@ -132,6 +146,11 @@ Vanuit de **root**:
 docker compose up --build
 # Backend: http://localhost:8000
 # Frontend: http://localhost:3000
+# Qdrant (RAG): meegestart op http://localhost:6333
 ```
 
-De frontend gebruikt de backend op `http://localhost:8000`. Zorg voor een `.env` in de root met de benodigde API-keys.
+Docker Compose start **backend**, **frontend** en **Qdrant** (vectordb voor RAG). De backend krijgt automatisch `QDRANT_URL=http://qdrant:6333`, zodat kennis aanmaken/uploaden en RAG-zoeken werken. Je hoeft Qdrant niet apart te starten.
+
+- **Geen persistente data:** Er worden geen volumes gemount. Agenda, kennis, geheugen en geüploade transcripts staan alleen in de container en zijn **weg na `docker compose down`**. Geschikt om snel te proberen; voor blijvende data: lokaal draaien (zie [Lokaal starten](#lokaal-starten)).
+- **Call transcripts:** Met Docker kun je in de app **Instellingen → Call transcripts** bestanden uploaden; die blijven zolang de container draait.
+- Zorg voor een `.env` in de root met de benodigde API-keys. De frontend praat met de backend op `http://localhost:8000`.
