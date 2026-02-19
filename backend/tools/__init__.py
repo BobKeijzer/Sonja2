@@ -1,4 +1,4 @@
-# Sonja tools: Serper, ScrapeWebsite, file read, RAG, memory append, spy agent, agenda, email
+# Sonja tools: Serper, ScrapeWebsite, file read, RAG, memory append, spy agent, agenda, email, call transcripts
 
 from .web_search import serper_search_tool
 from .scrape_website import scrape_website_tool
@@ -12,6 +12,7 @@ from .get_agenda_item import get_agenda_item_tool
 from .list_agenda_items import list_agenda_items_tool
 from .update_agenda_item import update_agenda_item_tool
 from .delete_agenda_item import delete_agenda_item_tool
+from .get_call_transcripts import get_call_transcripts_tool
 
 __all__ = [
     "serper_search_tool",
@@ -26,4 +27,5 @@ __all__ = [
     "list_agenda_items_tool",
     "update_agenda_item_tool",
     "delete_agenda_item_tool",
+    "get_call_transcripts_tool",
 ]

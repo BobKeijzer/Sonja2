@@ -12,7 +12,14 @@ AI-gestuurde marketingassistent voor AFAS Software: CrewAI (Claude) als backend,
 | Zoeken   | Serper API                                       |
 | RAG      | Qdrant (Docker) + VoyageAI embeddings             |
 | Nieuws   | RSS (feedparser), configuratie in `data/`        |
-| Data     | JSON-bestanden; `knowledge/`, `memory/`, `data/agenda.json` |
+| Data     | JSON-bestanden; `knowledge/`, `memory/`, `data/agenda.json`; `call_transcripts/` voor gesprekstranscripts (lokaal) |
+
+### Call transcripts (lokaal testen)
+
+De tool `get_call_transcripts` haalt klantgesprek-transcripts op. Voor nu leest die **lokaal** alle `.txt`- en `.md`-bestanden uit de map `backend/call_transcripts/`. Die map staat in `.gitignore` en komt niet op GitHub.
+
+- **Als je transcripts wilt testen:** maak de map `backend/call_transcripts/` aan en zet daar één of meer `.txt`- of `.md`-bestanden met (geplakte) transcripts. Sonja kan ze dan ophalen via de tool.
+- Later wordt dit vervangen door een transcript-platform-API.
 
 ## Functionaliteiten
 
@@ -42,6 +49,7 @@ AfasSonja/
 │   ├── tools/         # RAG, read_file, write_to_memory, Serper, agenda, e-mail, spy, etc.
 │   ├── knowledge/     # Kennisbestanden (.md/.txt)
 │   ├── memory/        # Herinneringen (losse .md per entry; alleen via write_to_memory)
+│   ├── call_transcripts/  # .txt/.md met transcripts (lokaal; niet op GitHub; zie sectie Call transcripts)
 │   └── data/          # agenda.json (taken + last_run_*), competitors.json, news_feeds.json, news_prompts.json
 ├── frontend/          # Next.js App Router
 │   ├── app/

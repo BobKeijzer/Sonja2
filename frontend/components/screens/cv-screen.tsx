@@ -37,6 +37,7 @@ const toolDisplayLabels = [
   "Agenda bekijken",
   "Agenda-item bijwerken",
   "Agenda-item verwijderen",
+  "Gesprekstranscripts ophalen",
 ]
 
 const personalityTraits = [

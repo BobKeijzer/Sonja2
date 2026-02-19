@@ -31,9 +31,10 @@ Of via root: `docker compose up` (start backend + frontend).
 
 - **main.py** – FastAPI-app, CORS, alle routes
 - **sonja.py** – CrewAI-agent, tools, context uit knowledge + memory
-- **tools/** – o.a. `rag_tool` (Qdrant + Voyage, indexeert knowledge/ en memory/), `file_read` (knowledge/ of memory/), `write_to_memory` (nieuwe herinnering in memory/), Serper, agenda, e-mail, spy_competitor_research
+- **tools/** – o.a. `rag_tool` (Qdrant + Voyage, indexeert knowledge/ en memory/), `file_read` (knowledge/ of memory/), `write_to_memory` (nieuwe herinnering in memory/), Serper, agenda, e-mail, spy_competitor_research, `get_call_transcripts` (transcripts uit call_transcripts/)
 - **knowledge/** – Kennisbestanden (.md/.txt); RAG-index en bestandenlijst voor frontend
 - **memory/** – Herinneringen (één .md per entry, naam o.a. `DD-MM-YYYY_HH-MM_slug.md`); alleen aanmaak via write_to_memory; frontend kan lijst, openen, bewerken, verwijderen
+- **call_transcripts/** – Optioneel; niet in git. Zet hier .txt/.md met klantgesprek-transcripts om `get_call_transcripts` te testen (zie hoofd-README).
 - **data/** – `agenda.json` (agenda-items, per item o.a. `last_run_at`, `last_run_response`, `last_run_steps`), `competitors.json`, `news_feeds.json`, `news_prompts.json`
 
 ### Sonja-instanties (sonja.py)

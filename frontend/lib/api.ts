@@ -21,6 +21,7 @@ const TOOL_EMOJI: Record<string, string> = {
   "list_agenda_items": "📋",
   "update_agenda_item": "✏️",
   "delete_agenda_item": "🗑️",
+  get_call_transcripts: "📞",
 }
 
 export function addEmojis(steps: ThinkingStep[]): ThinkingStep[] {

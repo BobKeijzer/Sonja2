@@ -17,6 +17,7 @@ Huidige tools (tools/):
 - add_agenda_item_tool: voeg taak/afspraak toe (eenmalig of recurring)
 - update_agenda_item_tool: werk agenda-item bij
 - delete_agenda_item_tool: verwijder agenda-item
+- get_call_transcripts_tool: haal alle klantgesprek-transcripts op (lokaal uit call_transcripts/; later API)
 
 RAG: we gebruiken RagTool als tool (niet knowledge_sources op de Agent), zodat Sonja
 expliciet zoekt wanneer nodig en de index na upload/verwijderen/write_to_memory ververst kan worden.
@@ -46,6 +47,7 @@ from tools import (
     list_agenda_items_tool,
     update_agenda_item_tool,
     delete_agenda_item_tool,
+    get_call_transcripts_tool,
 )
 
 
@@ -105,6 +107,8 @@ def _step_display_label(tool_name: str, kwargs: dict[str, Any]) -> str:
     if tool_name == "delete_agenda_item":
         iid = get("item_id")
         return f"Agenda-item verwijderen: {iid}" if iid else "Agenda-item verwijderen."
+    if tool_name == "get_call_transcripts":
+        return "Gesprekstranscripts ophalen."
     for key, val in kwargs.items():
         v = _trunc(str(val))
         if v:
@@ -209,6 +213,7 @@ def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
         list_agenda_items_tool,
         update_agenda_item_tool,
         delete_agenda_item_tool,
+        get_call_transcripts_tool,
     ]
     if steps_ctx is not None:
         wrapped = []
@@ -227,7 +232,7 @@ def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
             "Deel proactief inzichten en trends waar relevant — net als bij de koffieautomaat. "
             "Gebruik de juiste tools: web_search en scrape_website voor web, read_file voor bestanden in knowledge/ of memory/ (gebruik memory/bestandsnaam voor herinneringen), rag_search voor semantisch zoeken in knowledge en herinneringen, "
             "write_to_memory om een nieuwe herinnering aan te maken (titel + inhoud; één bestand per herinnering in memory/), spy_competitor_research voor concurrentie-onderzoek, "
-            "list_agenda_items / get_agenda_item / add_agenda_item / update_agenda_item / delete_agenda_item voor de agenda (get_agenda_item om last run en antwoord te bekijken), send_email voor resultaten. "
+            "list_agenda_items / get_agenda_item / add_agenda_item / update_agenda_item / delete_agenda_item voor de agenda (get_agenda_item om last run en antwoord te bekijken), send_email voor resultaten, get_call_transcripts om klantgesprek-transcripts op te halen. "
             "Leer van feedback: sla het op met write_to_memory (één aanroep met titel en inhoud). "
             "Roep write_to_memory zo min mogelijk aan: bundel in één dense entry per herinnering. "
             "Wees behulpzaam, informeel waar het past, en antwoord in het Nederlands. Een grapje mag — dat hoort bij AFAS (Doen, Vertrouwen, Gek, Familie)."
@@ -238,7 +243,7 @@ def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
             "Hoe je werkt: (1) Eerst vragen stellen — wat wil iemand bereiken, voor wie? (2) Met die context aan de slag; Doen, niet lullen. "
             "(3) Feedback en leerpunten opslaan als herinnering met write_to_memory (titel + inhoud; één bestand per herinnering). "
             "Tools: read_file voor knowledge/ of memory/ (memory/bestandsnaam), rag_search voor knowledge en herinneringen, write_to_memory om een nieuw bestand in memory/ aan te maken. "
-            "Agenda: list_agenda_items, get_agenda_item (laatste run/antwoord bekijken), add_agenda_item, update_agenda_item, delete_agenda_item; bij geplande taken send_email voor het resultaat. "
+            "Agenda: list_agenda_items, get_agenda_item (laatste run/antwoord bekijken), add_agenda_item, update_agenda_item, delete_agenda_item; bij geplande taken send_email voor het resultaat. get_call_transcripts voor klantgesprek-transcripts. "
             "Subagents roep je aan via tools (bijv. spy_competitor_research). Antwoord altijd in het Nederlands."
         ),
         tools=all_tools,
@@ -273,7 +278,7 @@ def _build_prompt(message: str, context: str) -> str:
 
 
 class SonjaAssistant:
-    """Sonja: één CrewAI-agent met alle tools (search, scrape, knowledge, memory, RAG, agenda, e-mail, spy); geen Crew."""
+    """Sonja: één CrewAI-agent met alle tools (search, scrape, knowledge, memory, RAG, agenda, e-mail, spy, call transcripts); geen Crew."""
 
     def __init__(self):
         self._steps_ctx: ContextVar = ContextVar("sonja_steps", default=[])
