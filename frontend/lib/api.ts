@@ -9,8 +9,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 // ─── Emoji mapping for thinking steps ──────────────────────────────────────
 
 const TOOL_EMOJI: Record<string, string> = {
-  "Search the internet with Serper": "🔎",
-  "Read website content": "🌐",
+  "web_search": "🔎",
+  "scrape_website": "🌐",
   "read_file": "📄",
   "read_knowledge_file": "📄",
   "rag_search": "🧠",
