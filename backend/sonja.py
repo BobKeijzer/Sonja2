@@ -5,8 +5,8 @@ Eén agent met alle tools; geen Crew. Subagents (bijv. concurrentie-onderzoek) w
 als tools aangeroepen.
 
 Huidige tools (tools/):
-- serper_search_tool: zoekresultaten en snippets op het web (Serper)
-- scrape_website_tool: scrape een URL voor volledige pagina-inhoud
+- web_search (serper_search_tool): zoekresultaten en snippets op het web (Serper)
+- scrape_website (scrape_website_tool): scrape een URL voor volledige pagina-inhoud
 - file_read_tool: lees een bestand uit knowledge/ (bestandsnaam) of memory/ (memory/bestandsnaam)
 - write_to_memory_tool: maak een nieuwe herinnering aan in memory/ (titel + inhoud; bestandsnaam automatisch)
 - rag_tool (rag_search): semantisch zoeken in knowledge/ en memory/
@@ -63,10 +63,10 @@ def _step_display_label(tool_name: str, kwargs: dict[str, Any]) -> str:
     """Maak een Nederlandstalige, gebruiksvriendelijke zin voor één denkstap."""
     k = kwargs
     get = lambda key: _trunc(str(k.get(key, "")))
-    if tool_name == "Search the internet with Serper":
+    if tool_name == "web_search":
         q = get("search_query")
         return f"Op het internet zoeken naar: {q}" if q else "Op het internet zoeken."
-    if tool_name == "Read website content":
+    if tool_name == "scrape_website":
         url = get("website_url") or get("url") or get("link")
         return f"Pagina-inhoud ophalen van: {url}" if url else "Website-inhoud ophalen."
     if tool_name == "read_file":
@@ -225,7 +225,7 @@ def _build_sonja_agent(steps_ctx: ContextVar | None = None) -> Agent:
             "Je bent Sonja, jullie digitale collega: help met content, concurrentie-analyse en alles wat marketing betreft. "
             "Stel altijd eerst vragen om te begrijpen wat iemand wil (begrijpen > aannames); daarna pas aan de slag. "
             "Deel proactief inzichten en trends waar relevant — net als bij de koffieautomaat. "
-            "Gebruik de juiste tools: serper_search en scrape_website voor web, read_file voor bestanden in knowledge/ of memory/ (gebruik memory/bestandsnaam voor herinneringen), rag_search voor semantisch zoeken in knowledge en herinneringen, "
+            "Gebruik de juiste tools: web_search en scrape_website voor web, read_file voor bestanden in knowledge/ of memory/ (gebruik memory/bestandsnaam voor herinneringen), rag_search voor semantisch zoeken in knowledge en herinneringen, "
             "write_to_memory om een nieuwe herinnering aan te maken (titel + inhoud; één bestand per herinnering in memory/), spy_competitor_research voor concurrentie-onderzoek, "
             "list_agenda_items / get_agenda_item / add_agenda_item / update_agenda_item / delete_agenda_item voor de agenda (get_agenda_item om last run en antwoord te bekijken), send_email voor resultaten. "
             "Leer van feedback: sla het op met write_to_memory (één aanroep met titel en inhoud). "

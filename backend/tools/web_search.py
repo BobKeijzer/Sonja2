@@ -14,3 +14,5 @@ serper_search_tool = SerperDevTool(
     locale="nl",
     n_results=5,
 )
+# Consistente toolnaam voor goal en step_display_label in sonja.py
+serper_search_tool.name = "web_search"
