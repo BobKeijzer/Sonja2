@@ -936,7 +936,6 @@ def _run_agenda_item(item_id: str) -> None:
     message = (
         f"Geplande taak: [{item.title}].\n\n"
         f"Voer de volgende opdracht uit: {item.prompt}\n\n"
-        "Als in de opdracht staat dat je het resultaat per e-mail moet sturen (bijv. 'mail naar ...'), gebruik dan de send_email tool."
     )
     try:
         response, steps = sonja.chat(message)
