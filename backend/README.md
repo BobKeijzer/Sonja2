@@ -55,15 +55,15 @@ Of via root: `docker compose up` (start backend + frontend).
 
 | Gebied      | Endpoints |
 | ----------- | --------- |
-| Chat        | `POST /chat` |
+| Chat        | `POST /chat/stream` |
 | Agenda      | `GET/POST /agenda`, `GET/PUT/DELETE /agenda/{id}` |
 | Kennis      | `GET /knowledge`, `GET/PUT/DELETE /knowledge/{filename}`, `POST /knowledge/upload`, `POST /knowledge/create`, `POST /knowledge/refresh` |
 | Geheugen    | `GET /memory`, `GET/PUT/DELETE /memory/{filename}` |
 | Call transcripts | `GET /call_transcripts`, `POST /call_transcripts/upload` |
-| Nieuws      | `GET /news`, `GET/PUT /news/feeds`, `GET/PUT /news/prompts`, `POST /news/generate` |
-| Vergaderingen | `POST /meetings/extract` |
-| Website     | `POST /analyze/website` |
-| Concurrenten | `GET/POST/PATCH/DELETE /competitors`, `POST /analyze/competitors` |
+| Nieuws      | `GET /news`, `GET/PUT /news/feeds`, `GET/PUT /news/prompts`, `POST /news/generate/stream` |
+| Vergaderingen | `POST /meetings/extract/stream` |
+| Website     | `POST /analyze/website/stream` |
+| Concurrenten | `GET/POST/PATCH/DELETE /competitors`, `POST /analyze/competitors/stream` |
 
 ## Env (samenvatting)
 

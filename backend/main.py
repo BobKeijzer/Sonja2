@@ -57,37 +57,8 @@ class ChatRequest(BaseModel):
     context: str = ""
 
 
-class StepItem(BaseModel):
-    tool: str
-    summary: str | None = None
-    display_label: str | None = None
-
-
-class ChatResponse(BaseModel):
-    response: str
-    steps: list[StepItem] = Field(default_factory=list, description="Sonja denkstappen (tool-aanroepen)")
-
-
-def _to_chat_response(response: str, steps: list) -> ChatResponse:
-    return ChatResponse(
-        response=response,
-        steps=[
-            StepItem(tool=s["tool"], summary=s.get("summary"), display_label=s.get("display_label"))
-            for s in steps
-        ],
-    )
-
-
-@app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """Stel een vraag aan Sonja. Optioneel: context = eerdere berichten in het gesprek."""
-    sonja = get_sonja()
-    response, steps = await sonja.chat_async(request.message, context=request.context)
-    return _to_chat_response(response, steps)
-
-
 async def _chat_stream_generator(message: str, context: str):
-    """Yield SSE events: event step voor elke stap, daarna event done met response."""
+    """SSE-generator voor chat: stappen als event step, antwoord als event done. Gebruikt singleton Sonja."""
     sonja = get_sonja()
     steps_list: list[dict] = []
     task = asyncio.create_task(
@@ -105,7 +76,7 @@ async def _chat_stream_generator(message: str, context: str):
 
 
 async def _stream_prompt_generator(prompt: str):
-    """Yield SSE events voor een willekeurige Sonja-prompt (geen chat-context). Gebruikt eigen Sonja-instantie, wordt na afloop verworpen."""
+    """SSE-generator voor één prompt (meetings, website, competitors, news). Eigen Sonja per run, veilig parallel."""
     sonja = create_sonja_ephemeral()
     steps_list: list[dict] = []
     task = asyncio.create_task(
@@ -123,6 +94,7 @@ async def _stream_prompt_generator(prompt: str):
 
 
 def _sse_headers():
+    """Headers voor Server-Sent Events (geen buffering, keep-alive)."""
     return {
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
@@ -132,7 +104,7 @@ def _sse_headers():
 
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    """Chat met Server-Sent Events: stappen komen binnen terwijl Sonja werkt, daarna het antwoord."""
+    """Chat met SSE: denkstappen live, daarna antwoord. Frontend gebruikt alleen dit endpoint."""
     return StreamingResponse(
         _chat_stream_generator(request.message, context=request.context or ""),
         media_type="text/event-stream",
@@ -171,16 +143,6 @@ async def meetings_extract_stream(request: MeetingsExtractRequest):
     )
 
 
-@app.post("/meetings/extract", response_model=ChatResponse)
-async def meetings_extract(request: MeetingsExtractRequest):
-    """Haal actiepunten, to-do's en kennis uit een transcript; leerpunten worden opgeslagen als herinnering in memory/."""
-    transcript = request.transcript or ""
-    prompt = _meetings_prompt(transcript, request.custom_prompt)
-    sonja = create_sonja_ephemeral()
-    response, steps = await sonja.chat_async(prompt, context="")
-    return _to_chat_response(response, steps)
-
-
 # --- Website-analyse ---
 
 class AnalyzeWebsiteRequest(BaseModel):
@@ -209,18 +171,6 @@ async def analyze_website_stream(request: AnalyzeWebsiteRequest):
         media_type="text/event-stream",
         headers=_sse_headers(),
     )
-
-
-@app.post("/analyze/website", response_model=ChatResponse)
-async def analyze_website(request: AnalyzeWebsiteRequest):
-    """Scrape de URL en laat Sonja analyseren op SEO, content, tone of voice en CTA."""
-    url = (request.url or "").strip()
-    if not url:
-        raise HTTPException(status_code=400, detail="URL is verplicht.")
-    prompt = _website_prompt(url, request.custom_prompt)
-    sonja = create_sonja_ephemeral()
-    response, steps = await sonja.chat_async(prompt, context="")
-    return _to_chat_response(response, steps)
 
 
 # --- Concurrenten-analyse ---
@@ -256,18 +206,6 @@ async def analyze_competitors_stream(request: AnalyzeCompetitorsRequest):
         media_type="text/event-stream",
         headers=_sse_headers(),
     )
-
-
-@app.post("/analyze/competitors", response_model=ChatResponse)
-async def analyze_competitors(request: AnalyzeCompetitorsRequest):
-    """Laat Sonja per opgegeven concurrent spy_competitor_research uitvoeren en geef een gecombineerd overzicht."""
-    names = [n.strip() for n in (request.competitor_names or []) if n.strip()]
-    if not names:
-        raise HTTPException(status_code=400, detail="Minimaal één concurrent opgeven.")
-    prompt = _competitors_prompt(names, request.custom_prompt)
-    sonja = create_sonja_ephemeral()
-    response, steps = await sonja.chat_async(prompt, context="")
-    return _to_chat_response(response, steps)
 
 
 # --- Concurrentenlijst (voor tabblad Concurrenten) ---
@@ -624,29 +562,6 @@ async def news_generate_stream(body: NewsGenerateRequest):
     )
 
 
-@app.post("/news/generate", response_model=NewsGenerateResponse)
-async def news_generate(body: NewsGenerateRequest):
-    item = body.news_item or {}
-    title = (item.get("title") or "").strip()
-    url = (item.get("url") or "").strip()
-    task = (body.task or "").strip().lower()
-    custom = (body.custom_prompt or "").strip()
-    if not title and not url:
-        raise HTTPException(status_code=400, detail="news_item moet ten minste title of url bevatten.")
-    if task == "custom" and not custom:
-        raise HTTPException(status_code=400, detail="Bij task 'custom' is custom_prompt verplicht.")
-    prompts = _load_news_prompts()
-    if task not in prompts and task != "custom":
-        raise HTTPException(
-            status_code=400,
-            detail="task moet zijn: inhaker, linkedin, afas_betekenis of custom.",
-        )
-    prompt = _news_generate_prompt(body)
-    sonja = create_sonja_ephemeral()
-    response, _ = await sonja.chat_async(prompt, context="")
-    return NewsGenerateResponse(content=(response or "").strip())
-
-
 # --- Kennis (knowledge/) – voor frontend tabblad Kennis: lijst, open bestand, upload, verwijderen ---
 # Herinneringen staan in memory/ als losse bestanden. In knowledge/ mag ook een bestand memory.md staan (gewoon een kennisbestand).
 
@@ -963,7 +878,7 @@ _agenda_running_lock = threading.Lock()
 
 
 def _run_agenda_item(item_id: str) -> None:
-    """Voert één agenda-item uit in een eigen Sonja-instantie. Na afloop: id uit _agenda_running_ids."""
+    """Draait in een thread; voert één agenda-item uit met een ephemeral Sonja (sync chat). Na afloop: id uit _agenda_running_ids."""
     from zoneinfo import ZoneInfo
     item = agenda_get(item_id)
     if item is None:

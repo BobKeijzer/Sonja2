@@ -33,20 +33,6 @@ export function addEmojis(steps: ThinkingStep[]): ThinkingStep[] {
 
 // ─── Chat ────────────────────────────────────────────────────────────────────
 
-export async function sendChatMessage(
-  message: string,
-  context: string = ""
-): Promise<{ response: string; steps: ThinkingStep[] }> {
-  const res = await fetch(`${API_BASE}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, context }),
-  })
-  if (!res.ok) throw new Error("Chat request failed")
-  const data = await res.json()
-  return { response: data.response, steps: addEmojis(data.steps || []) }
-}
-
 /** Chat met SSE-stream: onStep wordt per stap aangeroepen, daarna wordt { response, steps } geretourneerd. */
 export async function sendChatMessageStream(
   message: string,
@@ -177,23 +163,6 @@ async function parseSSEStream(
 
 // ─── Meetings ────────────────────────────────────────────────────────────────
 
-export async function extractMeeting(
-  transcript: string,
-  customPrompt?: string
-): Promise<{ response: string; steps: ThinkingStep[] }> {
-  const res = await fetch(`${API_BASE}/meetings/extract`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      transcript,
-      ...(customPrompt?.trim() ? { custom_prompt: customPrompt.trim() } : {}),
-    }),
-  })
-  if (!res.ok) throw new Error("Meeting extraction failed")
-  const data = await res.json()
-  return { response: data.response, steps: addEmojis(data.steps || []) }
-}
-
 /** Vergadering extract met SSE: onStep per stap, daarna { response, steps }. */
 export async function extractMeetingStream(
   transcript: string,
@@ -221,23 +190,6 @@ export async function extractMeetingStream(
 }
 
 // ─── Website Analysis ────────────────────────────────────────────────────────
-
-export async function analyzeWebsite(
-  url: string,
-  customPrompt?: string
-): Promise<{ response: string; steps: ThinkingStep[] }> {
-  const res = await fetch(`${API_BASE}/analyze/website`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      url,
-      ...(customPrompt?.trim() ? { custom_prompt: customPrompt.trim() } : {}),
-    }),
-  })
-  if (!res.ok) throw new Error("Website analysis failed")
-  const data = await res.json()
-  return { response: data.response, steps: addEmojis(data.steps || []) }
-}
 
 /** Website-analyse met SSE: onStep per stap, daarna { response, steps }. */
 export async function analyzeWebsiteStream(
@@ -302,23 +254,6 @@ export async function deleteCompetitor(id: string): Promise<void> {
     method: "DELETE",
   })
   if (!res.ok) throw new Error("Failed to delete competitor")
-}
-
-export async function analyzeCompetitors(
-  names: string[],
-  customPrompt?: string
-): Promise<{ response: string; steps: ThinkingStep[] }> {
-  const res = await fetch(`${API_BASE}/analyze/competitors`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ 
-      competitor_names: names,
-      custom_prompt: customPrompt || null,
-    }),
-  })
-  if (!res.ok) throw new Error("Competitor analysis failed")
-  const data = await res.json()
-  return { response: data.response, steps: addEmojis(data.steps || []) }
 }
 
 /** Concurrenten-analyse met SSE: onStep per stap, daarna { response, steps }. */
@@ -575,25 +510,6 @@ export async function updateNewsPrompts(
   })
   if (!res.ok) throw new Error("Failed to update news prompts")
   return res.json()
-}
-
-export async function generateNewsContent(
-  newsItem: import("./types").NewsItem,
-  task: NewsGenerateTask,
-  customPrompt?: string
-): Promise<string> {
-  const res = await fetch(`${API_BASE}/news/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      news_item: newsItem,
-      task,
-      custom_prompt: task === "custom" ? (customPrompt ?? "") : undefined,
-    }),
-  })
-  if (!res.ok) throw new Error("Failed to generate news content")
-  const data = await res.json()
-  return data.content ?? ""
 }
 
 /** Nieuws genereren met SSE: onStep per stap, daarna { content }. */

@@ -278,14 +278,14 @@ def _build_prompt(message: str, context: str) -> str:
 
 
 class SonjaAssistant:
-    """Sonja: één CrewAI-agent met alle tools (search, scrape, knowledge, memory, RAG, agenda, e-mail, spy, call transcripts); geen Crew."""
+    """Eén CrewAI-agent met alle tools. chat = sync (agenda-thread); chat_async_with_list = async + gedeelde steps (streaming)."""
 
     def __init__(self):
         self._steps_ctx: ContextVar = ContextVar("sonja_steps", default=[])
         self.agent = _build_sonja_agent(steps_ctx=self._steps_ctx)
 
     def chat(self, message: str, context: str = "") -> tuple[str, list[dict]]:
-        """Eén bericht naar Sonja; optioneel eerdere context. Retourneert (antwoord, denkstappen)."""
+        """Sync run: één bericht, retourneert (antwoord, denkstappen). Voor gebruik in threads (bijv. agenda-scheduler), waar async niet nodig is."""
         steps_list: list[dict] = []
         token = self._steps_ctx.set(steps_list)
         try:
@@ -296,22 +296,10 @@ class SonjaAssistant:
         finally:
             self._steps_ctx.reset(token)
 
-    async def chat_async(self, message: str, context: str = "") -> tuple[str, list[dict]]:
-        """Async variant voor gebruik vanuit FastAPI. Retourneert (antwoord, denkstappen)."""
-        steps_list: list[dict] = []
-        token = self._steps_ctx.set(steps_list)
-        try:
-            prompt = _build_prompt(message, context)
-            result = await self.agent.kickoff_async(messages=prompt)
-            response = result.raw if hasattr(result, "raw") else str(result)
-            return response, list(steps_list)
-        finally:
-            self._steps_ctx.reset(token)
-
     async def chat_async_with_list(
         self, message: str, context: str, steps_list: list[dict]
     ) -> str:
-        """Zelfde als chat_async maar gebruikt de gegeven steps_list (voor streaming: caller kan stappen uitlezen terwijl de agent draait). Retourneert alleen het antwoord."""
+        """Async run waarbij de caller een gedeelde steps_list meegeeft; stappen verschijnen erin tijdens de run. Nodig voor SSE-streaming (stappen live naar de client). Retourneert alleen het antwoord."""
         token = self._steps_ctx.set(steps_list)
         try:
             prompt = _build_prompt(message, context)
@@ -325,7 +313,7 @@ _sonja_instance: SonjaAssistant | None = None
 
 
 def get_sonja() -> SonjaAssistant:
-    """Singleton Sonja-instantie (chat en andere lange-sessie flows)."""
+    """Eén gedeelde Sonja voor chat (stream). Gebruik voor /chat/stream zodat gebruikers dezelfde 'assistent' ervaren."""
     global _sonja_instance
     if _sonja_instance is None:
         _sonja_instance = SonjaAssistant()
@@ -333,7 +321,5 @@ def get_sonja() -> SonjaAssistant:
 
 
 def create_sonja_ephemeral() -> SonjaAssistant:
-    """Nieuwe Sonja-instantie voor eenmalig gebruik (bijv. agenda-run). Niet de chat-singleton; kan parallel gebruikt worden.
-    De instantie wordt nergens bewaard: zodra de aanroeper klaar is (bv. request afgerond of thread eindigt),
-    zijn er geen referenties meer en ruimt Python de instance via garbage collection op. Geen expliciete verwijdering nodig."""
+    """Nieuwe Sonja per aanroep; niet de singleton. Voor parallel gebruik (meetings, website, competitors, news, agenda) zonder gedeelde agent-state."""
     return SonjaAssistant()
